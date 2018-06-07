@@ -33,6 +33,10 @@ namespace net.vieapps.Services.IPLocations
 
 		internal static Provider SecondProvider { get; private set; } = null;
 
+		internal static Regex PublicAddressRegex { get; } = new Regex(@"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}");
+
+		internal static Regex SameLocationRegex { get; private set; } = null;
+
 		internal static Dictionary<string, Provider> GetProviders()
 		{
 			var providers = new Dictionary<string, Provider>(StringComparer.OrdinalIgnoreCase);
@@ -59,6 +63,8 @@ namespace net.vieapps.Services.IPLocations
 					: providers.Count > 1
 						? providers.ElementAt(providers.Count - 1).Value
 						: null;
+
+				Utility.SameLocationRegex = new Regex(config.Section.Attributes["sameLocationRegex"]?.Value ?? @"\d{1,3}\.\d{1,3}\.\d{1,3}");
 			}
 			return providers;
 		}
@@ -76,7 +82,7 @@ namespace net.vieapps.Services.IPLocations
 				try
 				{
 					var ip = await new WebClient().DownloadStringTaskAsync("http://checkip.dyndns.org/").ConfigureAwait(false);
-					ip = new Regex(@"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}").Matches(ip)[0].ToString();
+					ip = Utility.PublicAddressRegex.Matches(ip)[0].ToString();
 					var ipAddress = IPAddress.Parse(ip);
 					if (Utility.PublicAddresses.Find(ipAddress) == null)
 						Utility.PublicAddresses.Add(ipAddress);
@@ -89,6 +95,7 @@ namespace net.vieapps.Services.IPLocations
 				try
 				{
 					var ip = await new WebClient().DownloadStringTaskAsync("http://api.ipify.org/").ConfigureAwait(false);
+					ip = Utility.PublicAddressRegex.Matches(ip)[0].ToString();
 					var ipAddress = IPAddress.Parse(ip);
 					if (Utility.PublicAddresses.Find(ipAddress) == null)
 						Utility.PublicAddresses.Add(ipAddress);
@@ -103,6 +110,29 @@ namespace net.vieapps.Services.IPLocations
 				if (Utility.LocalAddresses.Find(ipAddress) == null)
 					Utility.LocalAddresses.Add(ipAddress);
 			});
+		}
+
+		internal static bool IsSameLocation(string ip)
+		{
+			if (IPAddress.IsLoopback(IPAddress.Parse(ip)))
+				return true;
+
+			var ipMatched = Utility.SameLocationRegex.Match(ip);
+			var ipAddress = ipMatched.Success
+				? ipMatched.Groups[0].Value
+				: null;
+
+			if (string.IsNullOrWhiteSpace(ipAddress))
+				return false;
+
+			foreach(var localAddress in Utility.LocalAddresses)
+			{
+				var localMatched = Utility.SameLocationRegex.Match($"{localAddress}");
+				if (ipAddress.IsEquals(localMatched.Success ? localMatched.Groups[0].Value : null))
+					return true;
+			}
+
+			return false;
 		}
 	}
 
