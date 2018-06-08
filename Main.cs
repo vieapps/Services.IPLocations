@@ -82,7 +82,7 @@ namespace net.vieapps.Services.IPLocations
 
 				// no recorded, then request to provider
 				if (json == null)
-					json = await this.GetAsync(ipAddress, cancellationToken).ConfigureAwait(false);
+					json = await this.GetAsync(ipAddress, cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
 				stopwatch.Stop();
 				this.Logger.LogInformation($"Success response - Execution times: {stopwatch.GetElapsedTimes()} [{requestInfo.CorrelationID}]");
