@@ -69,9 +69,9 @@ namespace net.vieapps.Services.IPLocations
 			return providers;
 		}
 
-		internal static List<IPAddress> PublicAddresses { get; private set; } = new List<IPAddress>();
+		internal static List<IPAddress> PublicAddresses { get; } = new List<IPAddress>();
 
-		internal static List<IPAddress> LocalAddresses { get; private set; } = new List<IPAddress>();
+		internal static List<IPAddress> LocalAddresses { get; } = new List<IPAddress>();
 
 		internal static async Task PrepareAddressesAsynnc()
 		{
