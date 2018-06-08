@@ -19,8 +19,6 @@ namespace net.vieapps.Services.IPLocations
 {
 	public class ServiceComponent : ServiceBase
 	{
-		public ServiceComponent() : base() { }
-
 		public override string ServiceName => "IPLocations";
 
 		public override void Start(string[] args = null, bool initializeRepository = true, Func<ServiceBase, Task> nextAsync = null)
@@ -41,6 +39,7 @@ namespace net.vieapps.Services.IPLocations
 						this.Logger.LogError("Error occurred while invoking the next action", ex);
 					}
 
+				this.Logger.LogInformation($"Providers: {string.Join(", ", Utility.Providers.Keys)}");
 				this.Logger.LogInformation($"First provider: {Utility.FirstProvider?.Name ?? "N/A"}");
 				this.Logger.LogInformation($"Second provider: {Utility.SecondProvider?.Name ?? "N/A"}");
 				this.Logger.LogInformation($"Public Address: {string.Join(" - ", Utility.PublicAddresses)}");
@@ -60,6 +59,8 @@ namespace net.vieapps.Services.IPLocations
 
 				// prepare
 				var ipAddress = requestInfo.GetQueryParameter("ip-address");
+				if (string.IsNullOrWhiteSpace(ipAddress))
+					throw new InvalidRequestException($"The request is invalid ({requestInfo.Verb} {requestInfo.URI})");
 
 				// check to see the same location
 				if (Utility.IsSameLocation(ipAddress))
@@ -98,7 +99,7 @@ namespace net.vieapps.Services.IPLocations
 			}
 		}
 
-		async Task<JObject> GetAsync(string ipAddress, CancellationToken cancellationToken)
+		async Task<JObject> GetAsync(string ipAddress, CancellationToken cancellationToken, string correlationID = null)
 		{
 			try
 			{
@@ -106,14 +107,14 @@ namespace net.vieapps.Services.IPLocations
 			}
 			catch (Exception fe)
 			{
-				await this.WriteLogsAsync(UtilityService.NewUUID, $"Error while processing with \"{Utility.FirstProvider?.Name}\" provider: {fe.Message}", fe).ConfigureAwait(false);
+				await this.WriteLogsAsync(correlationID ?? UtilityService.NewUUID, $"Error while processing with \"{Utility.FirstProvider?.Name}\" provider: {fe.Message}", fe).ConfigureAwait(false);
 				try
 				{
 					return await this.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
 				}
 				catch (Exception se)
 				{
-					await this.WriteLogsAsync(UtilityService.NewUUID, $"Error while processing with \"{Utility.SecondProvider?.Name}\" provider: {se.Message}", se).ConfigureAwait(false);
+					await this.WriteLogsAsync(correlationID ?? UtilityService.NewUUID, $"Error while processing with \"{Utility.SecondProvider?.Name}\" provider: {se.Message}", se).ConfigureAwait(false);
 					return new IPLocation
 					{
 						ID = ipAddress.GetMD5(),
@@ -132,7 +133,7 @@ namespace net.vieapps.Services.IPLocations
 
 		Task<JObject> GetAsync(string providerName, string ipAddress, CancellationToken cancellationToken)
 		{
-			switch (providerName.ToLower())
+			switch ((providerName ?? "ipstack").ToLower())
 			{
 				case "ipapi":
 					return this.GetByIpApiAsync(ipAddress, cancellationToken);
@@ -145,10 +146,8 @@ namespace net.vieapps.Services.IPLocations
 
 		async Task<JObject> GetByIpStackAsync(string ipAddress, CancellationToken cancellationToken)
 		{
-			// send request
-			var provider = Utility.Providers["ipstack"];
-			var url = provider.UriPattern.Replace(StringComparison.OrdinalIgnoreCase, "{ip}", ipAddress).Replace(StringComparison.OrdinalIgnoreCase, "{accessKey}", provider.AccessKey);
-			var json = JObject.Parse(await UtilityService.GetWebPageAsync(url, null, null, cancellationToken).ConfigureAwait(false));
+			// get IP address from provider
+			var json = JObject.Parse(await new WebClient().DownloadStringTaskAsync(Utility.Providers["ipstack"].GetUrl(ipAddress), cancellationToken).ConfigureAwait(false));
 
 			// update database
 			var ipLocation = new IPLocation
@@ -171,10 +170,8 @@ namespace net.vieapps.Services.IPLocations
 
 		async Task<JObject> GetByIpApiAsync(string ipAddress, CancellationToken cancellationToken)
 		{
-			// send request
-			var provider = Utility.Providers["ipapi"];
-			var url = provider.UriPattern.Replace(StringComparison.OrdinalIgnoreCase, "{ip}", ipAddress).Replace(StringComparison.OrdinalIgnoreCase, "{accessKey}", provider.AccessKey);
-			var json = JObject.Parse(await UtilityService.GetWebPageAsync(url, null, null, cancellationToken).ConfigureAwait(false));
+			// get IP address from provider
+			var json = JObject.Parse(await new WebClient().DownloadStringTaskAsync(Utility.Providers["ipapi"].GetUrl(ipAddress), cancellationToken).ConfigureAwait(false));
 
 			// update database
 			var continent = json.Get<string>("timezone");

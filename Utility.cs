@@ -73,11 +73,9 @@ namespace net.vieapps.Services.IPLocations
 
 		internal static List<IPAddress> LocalAddresses { get; private set; } = new List<IPAddress>();
 
-		internal static IPAddress Find(this List<IPAddress> addresses, IPAddress address) => addresses.FirstOrDefault(adr => $"{address}".Equals($"{adr}"));
-
 		internal static async Task PrepareAddressesAsynnc()
 		{
-			async Task getIpByDynDnsAsync()
+			async Task getByDynDnsAsync()
 			{
 				try
 				{
@@ -90,7 +88,7 @@ namespace net.vieapps.Services.IPLocations
 				catch { }
 			}
 
-			async Task getIpByIpifyAsync()
+			async Task getByIpifyAsync()
 			{
 				try
 				{
@@ -103,7 +101,7 @@ namespace net.vieapps.Services.IPLocations
 				catch { }
 			}
 
-			await Task.WhenAny(getIpByDynDnsAsync(), getIpByIpifyAsync()).ConfigureAwait(false);
+			await Task.WhenAny(getByDynDnsAsync(), getByIpifyAsync()).ConfigureAwait(false);
 
 			Dns.GetHostAddresses(Dns.GetHostName()).ForEach(ipAddress =>
 			{
@@ -134,6 +132,12 @@ namespace net.vieapps.Services.IPLocations
 
 			return false;
 		}
+
+		internal static IPAddress Find(this List<IPAddress> addresses, IPAddress address)
+			=> addresses.FirstOrDefault(adr => $"{address}".Equals($"{adr}"));
+
+		internal static string GetUrl(this Provider provider, string ipAddress)
+			=> provider.UriPattern.Replace(StringComparison.OrdinalIgnoreCase, "{ip}", ipAddress).Replace(StringComparison.OrdinalIgnoreCase, "{accessKey}", provider.AccessKey);
 	}
 
 	//  --------------------------------------------------------------------------------------------
