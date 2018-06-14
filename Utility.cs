@@ -87,7 +87,7 @@ namespace net.vieapps.Services.IPLocations
 			var json = JObject.Parse(await UtilityService.GetWebPageAsync(Utility.Providers["ipstack"].GetUrl(ipAddress), null, null, cancellationToken).ConfigureAwait(false));
 			return new IPLocation
 			{
-				ID = json.Get<string>("ip").GetMD5(),
+				ID = json.Get<string>("ip").GenerateUUID(),
 				IP = json.Get<string>("ip"),
 				City = json.Get<string>("city"),
 				Region = json.Get<string>("region_name"),
@@ -105,7 +105,7 @@ namespace net.vieapps.Services.IPLocations
 			var continent = json.Get<string>("timezone");
 			return new IPLocation
 			{
-				ID = json.Get<string>("query").GetMD5(),
+				ID = json.Get<string>("query").GenerateUUID(),
 				IP = json.Get<string>("query"),
 				City = json.Get<string>("city"),
 				Region = json.Get<string>("regionName"),

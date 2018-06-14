@@ -11,8 +11,8 @@ using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.IPLocations
 {
-	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("IP = {IP}, AppInfo = {AppInfo}")]
-	[Entity(CollectionName = "IPLocations", TableName = "T_IPLocations_Info", CacheClass = typeof(Utility), CacheName = "Cache", CreateNewVersionWhenUpdated = false)]
+	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("IP = {IP}, City = {City}, Country = {Country}")]
+	[Entity(CollectionName = "IPLocations", TableName = "T_IPLocations_Info", CacheClass = typeof(Utility), CacheName = "Cache")]
 	public class IPLocation : Repository<IPLocation>
 	{
 		public IPLocation() => this.ID = "";
@@ -21,37 +21,37 @@ namespace net.vieapps.Services.IPLocations
 		/// <summary>
 		/// Gets or sets the IP address
 		/// </summary>
-		[Property(MaxLength = 50, NotNull = true), Sortable(UniqueIndexName = "IP_Address")]
+		[Property(MaxLength = 50, NotNull = true), Sortable(UniqueIndexName = "Address")]
 		public string IP { get; set; } = "";
 
 		/// <summary>
 		/// Gets or sets the city name
 		/// </summary>
-		[Property(MaxLength = 50, NotNull = true), Sortable]
+		[Property(MaxLength = 50, NotNull = true), Sortable(IndexName = "GEO")]
 		public string City { get; set; } = "";
 
 		/// <summary>
 		/// Gets or sets the region name
 		/// </summary>
-		[Property(MaxLength = 50, NotNull = true), Sortable]
+		[Property(MaxLength = 50, NotNull = true), Sortable(IndexName = "GEO")]
 		public string Region { get; set; } = "";
 
 		/// <summary>
 		/// Gets or sets the country
 		/// </summary>
-		[Property(MaxLength = 50, NotNull = true), Sortable]
+		[Property(MaxLength = 50, NotNull = true), Sortable(IndexName = "GEO")]
 		public string Country { get; set; } = "";
 
 		/// <summary>
 		/// Gets or sets the country code
 		/// </summary>
-		[Property(MaxLength = 2, NotNull = true), Sortable]
+		[Property(MaxLength = 2, NotNull = true), Sortable(IndexName = "GEO")]
 		public string CountryCode { get; set; } = "";
 
 		/// <summary>
 		/// Gets or sets the continent name (earth area)
 		/// </summary>
-		[Property(MaxLength = 50, NotNull = true), Sortable]
+		[Property(MaxLength = 50, NotNull = true), Sortable(IndexName = "GEO")]
 		public string Continent { get; set; } = "";
 
 		/// <summary>
@@ -65,6 +65,12 @@ namespace net.vieapps.Services.IPLocations
 		/// </summary>
 		[Property(MaxLength = 50, NotNull = true)]
 		public string Longitude { get; set; } = "";
+
+		/// <summary>
+		/// Gets or sets the last-updated time
+		/// </summary>
+		[Sortable(IndexName = "Time")]
+		public DateTime LastUpdated { get; set; } = DateTime.Now.AddDays(-31);
 		#endregion
 
 		#region IBusinessEntity properties

@@ -105,19 +105,32 @@ namespace net.vieapps.Services.IPLocations
 								Continent = "N/A",
 								Latitude = "N/A",
 								Longitude = "N/A",
-							}.ToJson();
+							}.ToJson(false, obj => obj.Remove("LastUpdated"));
 
 						else
 						{
-							// find in database
 							var location = await IPLocation.GetAsync<IPLocation>(ipAddress.GetMD5(), cancellationToken).ConfigureAwait(false);
-
-							// no recorded, then request to provider
-							if (location == null)
+							var isUpdate = location != null;
+							if (!isUpdate || (DateTime.Now - location.LastUpdated).Days > 30)
 								try
 								{
 									location = await Utility.GetAsync(Utility.FirstProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
-									await IPLocation.CreateAsync(location, cancellationToken).ConfigureAwait(false);
+									location.LastUpdated = DateTime.Now;
+									try
+									{
+										if (isUpdate)
+											await IPLocation.UpdateAsync(location, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+										else
+											await IPLocation.CreateAsync(location, cancellationToken).ConfigureAwait(false);
+									}
+									catch
+									{
+										try
+										{
+											await IPLocation.UpdateAsync(location, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+										}
+										catch { }
+									}
 								}
 								catch (Exception fe)
 								{
@@ -125,7 +138,22 @@ namespace net.vieapps.Services.IPLocations
 									try
 									{
 										location = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
-										await IPLocation.CreateAsync(location, cancellationToken).ConfigureAwait(false);
+										location.LastUpdated = DateTime.Now;
+										try
+										{
+											if (isUpdate)
+												await IPLocation.UpdateAsync(location, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+											else
+												await IPLocation.CreateAsync(location, cancellationToken).ConfigureAwait(false);
+										}
+										catch
+										{
+											try
+											{
+												await IPLocation.UpdateAsync(location, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+											}
+											catch { }
+										}
 									}
 									catch (Exception se)
 									{
@@ -145,7 +173,7 @@ namespace net.vieapps.Services.IPLocations
 									}
 								}
 
-							json = location.ToJson();
+							json = location.ToJson(false, obj => obj.Remove("LastUpdated"));
 						}
 						break;
 				}
