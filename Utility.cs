@@ -11,6 +11,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Configuration;
 
+using Microsoft.Extensions.Logging;
+
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using MongoDB.Bson.Serialization.Attributes;
@@ -85,18 +87,19 @@ namespace net.vieapps.Services.IPLocations
 		internal static async Task<IPLocation> GetByIpStackAsync(string ipAddress, CancellationToken cancellationToken = default(CancellationToken))
 		{
 			var json = JObject.Parse(await UtilityService.GetWebPageAsync(Utility.Providers["ipstack"].GetUrl(ipAddress), null, null, cancellationToken).ConfigureAwait(false));
-			return new IPLocation
-			{
-				ID = json.Get<string>("ip").GenerateUUID(),
-				IP = json.Get<string>("ip"),
-				City = json.Get<string>("city"),
-				Region = json.Get<string>("region_name"),
-				Country = json.Get<string>("country_name"),
-				CountryCode = json.Get<string>("country_code"),
-				Continent = json.Get<string>("continent_name"),
-				Latitude = json.Get<string>("latitude"),
-				Longitude = json.Get<string>("longitude"),
-			};
+			return json["error"] is JObject error
+				? throw new RemoteServerErrorException($"{error.Get<string>("info")} ({error.Get<string>("code")} - {error.Get<string>("type")})", null)
+				: new IPLocation
+				{
+					ID = json.Get<string>("ip").GenerateUUID(),
+					IP = json.Get<string>("ip"),
+					City = json.Get<string>("city"),
+					Region = json.Get<string>("region_name"),
+					Country = json.Get<string>("country_name"),
+					Continent = json.Get<string>("continent_name"),
+					Latitude = json.Get<string>("latitude"),
+					Longitude = json.Get<string>("longitude"),
+				};
 		}
 
 		internal static async Task<IPLocation> GetByIpApiAsync(string ipAddress, CancellationToken cancellationToken = default(CancellationToken))
@@ -110,7 +113,6 @@ namespace net.vieapps.Services.IPLocations
 				City = json.Get<string>("city"),
 				Region = json.Get<string>("regionName"),
 				Country = json.Get<string>("country"),
-				CountryCode = json.Get<string>("countryCode"),
 				Continent = continent.Left(continent.IndexOf("/")),
 				Latitude = json.Get<string>("lat"),
 				Longitude = json.Get<string>("lon"),
@@ -121,13 +123,92 @@ namespace net.vieapps.Services.IPLocations
 		{
 			switch ((providerName ?? "ipstack").ToLower())
 			{
-				case "ipapi":
-					return Utility.GetByIpApiAsync(ipAddress, cancellationToken);
-
 				case "ipstack":
-				default:
 					return Utility.GetByIpStackAsync(ipAddress, cancellationToken);
+
+				case "ipapi":
+				default:
+					return Utility.GetByIpApiAsync(ipAddress, cancellationToken);
 			}
+		}
+
+		internal static async Task<IPLocation> GetLocationAsync(string ipAddress, CancellationToken cancellationToken = default(CancellationToken), ILogger logger = null, string userID = null)
+		{
+			var location = await IPLocation.GetAsync<IPLocation>(ipAddress.GenerateUUID(), cancellationToken).ConfigureAwait(false);
+			var isUpdate = location != null;
+			if (!isUpdate || (DateTime.Now - location.LastUpdated).Days > 30)
+				try
+				{
+					location = await Utility.GetAsync(Utility.FirstProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
+					location.LastUpdated = DateTime.Now;
+					try
+					{
+						if (isUpdate)
+							await IPLocation.UpdateAsync(location, userID, cancellationToken).ConfigureAwait(false);
+						else
+							await IPLocation.CreateAsync(location, cancellationToken).ConfigureAwait(false);
+					}
+					catch
+					{
+						try
+						{
+							await IPLocation.UpdateAsync(location, userID, cancellationToken).ConfigureAwait(false);
+						}
+						catch { }
+					}
+				}
+				catch (Exception fe)
+				{
+					logger.LogError($"Error while processing with \"{Utility.FirstProvider?.Name}\" provider: {fe.Message}", fe);
+					try
+					{
+						location = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
+						location.LastUpdated = DateTime.Now;
+						try
+						{
+							if (isUpdate)
+								await IPLocation.UpdateAsync(location, userID, cancellationToken).ConfigureAwait(false);
+							else
+								await IPLocation.CreateAsync(location, cancellationToken).ConfigureAwait(false);
+						}
+						catch
+						{
+							try
+							{
+								await IPLocation.UpdateAsync(location, userID, cancellationToken).ConfigureAwait(false);
+							}
+							catch { }
+						}
+					}
+					catch (Exception se)
+					{
+						logger.LogError($"Error while processing with \"{Utility.SecondProvider?.Name}\" provider: {se.Message}", se);
+						location = new IPLocation
+						{
+							ID = ipAddress.GenerateUUID(),
+							IP = ipAddress,
+							City = "N/A",
+							Region = "N/A",
+							Country = "N/A",
+							Continent = "N/A",
+							Latitude = "N/A",
+							Longitude = "N/A",
+						};
+					}
+				}
+			return location;
+		}
+
+		internal static Task<IPLocation> GetCurrentLocationAsync(CancellationToken cancellationToken = default(CancellationToken), ILogger logger = null, string userID = null)
+		{
+			IPAddress ipAddress = null;
+			foreach (var address in Utility.PublicAddresses)
+				if ($"{address}".IndexOf(".") > 0)
+				{
+					ipAddress = address;
+					break;
+				}
+			return Utility.GetLocationAsync($"{ipAddress ?? Utility.PublicAddresses[0]}", cancellationToken, logger, userID);
 		}
 
 		internal static bool IsSameLocation(string ip)
@@ -158,49 +239,6 @@ namespace net.vieapps.Services.IPLocations
 
 		internal static string GetUrl(this Provider provider, string ipAddress)
 			=> provider.UriPattern.Replace(StringComparison.OrdinalIgnoreCase, "{ip}", ipAddress).Replace(StringComparison.OrdinalIgnoreCase, "{accessKey}", provider.AccessKey);
-
-		internal static async Task<IPLocation> GetCurrentLocationAsync(CancellationToken cancellationToken = default(CancellationToken))
-		{
-			IPAddress publicAddress = null;
-			foreach (var addr in Utility.PublicAddresses)
-				if ($"{addr}".IndexOf(".") > 0)
-				{
-					publicAddress = addr;
-					break;
-				}
-
-			var location = await IPLocation.GetAsync<IPLocation>($"{publicAddress}".GetMD5(), cancellationToken).ConfigureAwait(false);
-			if (location == null)
-				try
-				{
-					location = await Utility.GetAsync(Utility.FirstProvider?.Name, $"{publicAddress}", cancellationToken).ConfigureAwait(false);
-					await IPLocation.CreateAsync(location, cancellationToken).ConfigureAwait(false);
-				}
-				catch
-				{
-					try
-					{
-						location = await Utility.GetAsync(Utility.SecondProvider?.Name, $"{publicAddress}", cancellationToken).ConfigureAwait(false);
-						await IPLocation.CreateAsync(location, cancellationToken).ConfigureAwait(false);
-					}
-					catch
-					{
-						location = new IPLocation
-						{
-							ID = $"{publicAddress}".GetMD5(),
-							IP = $"{publicAddress}",
-							City = "N/A",
-							Region = "N/A",
-							Country = "N/A",
-							CountryCode = "N/A",
-							Continent = "N/A",
-							Latitude = "N/A",
-							Longitude = "N/A",
-						};
-					}
-				}
-			return location;
-		}
 
 		internal static async Task PrepareAddressesAsync(CancellationToken cancellationToken = default(CancellationToken))
 		{

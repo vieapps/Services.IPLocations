@@ -43,12 +43,6 @@ namespace net.vieapps.Services.IPLocations
 		public string Country { get; set; } = "";
 
 		/// <summary>
-		/// Gets or sets the country code
-		/// </summary>
-		[Property(MaxLength = 2, NotNull = true), Sortable(IndexName = "GEO")]
-		public string CountryCode { get; set; } = "";
-
-		/// <summary>
 		/// Gets or sets the continent name (earth area)
 		/// </summary>
 		[Property(MaxLength = 50, NotNull = true), Sortable(IndexName = "GEO")]

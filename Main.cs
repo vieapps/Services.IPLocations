@@ -61,11 +61,6 @@ namespace net.vieapps.Services.IPLocations
 				JObject json = null;
 				switch (requestInfo.ObjectName.ToLower())
 				{
-					case "current":
-					case "currentlocation":
-						json = (await Utility.GetCurrentLocationAsync(cancellationToken).ConfigureAwait(false)).ToJson();
-						break;
-
 					case "public":
 					case "public-ips":
 						var publicAddresses = new JArray();
@@ -86,6 +81,11 @@ namespace net.vieapps.Services.IPLocations
 						};
 						break;
 
+					case "current":
+					case "currentlocation":
+						json = (await Utility.GetCurrentLocationAsync(cancellationToken, this.Logger, requestInfo.Session.User.ID).ConfigureAwait(false)).ToJson(false, obj => obj.Remove("LastUpdated"));
+						break;
+
 					default:
 						// prepare
 						var ipAddress = requestInfo.GetQueryParameter("ip-address");
@@ -93,88 +93,19 @@ namespace net.vieapps.Services.IPLocations
 							throw new InvalidRequestException($"The request is invalid ({requestInfo.Verb} {requestInfo.URI})");
 
 						// same location
-						if (Utility.IsSameLocation(ipAddress))
-							json = new IPLocation
+						json = (Utility.IsSameLocation(ipAddress)
+							? new IPLocation
 							{
 								ID = ipAddress.GetMD5(),
 								IP = ipAddress,
 								City = "N/A",
 								Region = "N/A",
 								Country = "N/A",
-								CountryCode = "N/A",
 								Continent = "N/A",
 								Latitude = "N/A",
 								Longitude = "N/A",
-							}.ToJson(false, obj => obj.Remove("LastUpdated"));
-
-						else
-						{
-							var location = await IPLocation.GetAsync<IPLocation>(ipAddress.GetMD5(), cancellationToken).ConfigureAwait(false);
-							var isUpdate = location != null;
-							if (!isUpdate || (DateTime.Now - location.LastUpdated).Days > 30)
-								try
-								{
-									location = await Utility.GetAsync(Utility.FirstProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
-									location.LastUpdated = DateTime.Now;
-									try
-									{
-										if (isUpdate)
-											await IPLocation.UpdateAsync(location, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-										else
-											await IPLocation.CreateAsync(location, cancellationToken).ConfigureAwait(false);
-									}
-									catch
-									{
-										try
-										{
-											await IPLocation.UpdateAsync(location, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-										}
-										catch { }
-									}
-								}
-								catch (Exception fe)
-								{
-									await this.WriteLogsAsync(requestInfo.CorrelationID, $"Error while processing with \"{Utility.FirstProvider?.Name}\" provider: {fe.Message}", fe).ConfigureAwait(false);
-									try
-									{
-										location = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
-										location.LastUpdated = DateTime.Now;
-										try
-										{
-											if (isUpdate)
-												await IPLocation.UpdateAsync(location, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-											else
-												await IPLocation.CreateAsync(location, cancellationToken).ConfigureAwait(false);
-										}
-										catch
-										{
-											try
-											{
-												await IPLocation.UpdateAsync(location, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-											}
-											catch { }
-										}
-									}
-									catch (Exception se)
-									{
-										await this.WriteLogsAsync(requestInfo.CorrelationID, $"Error while processing with \"{Utility.SecondProvider?.Name}\" provider: {se.Message}", se).ConfigureAwait(false);
-										location = new IPLocation
-										{
-											ID = ipAddress.GetMD5(),
-											IP = ipAddress,
-											City = "N/A",
-											Region = "N/A",
-											Country = "N/A",
-											CountryCode = "N/A",
-											Continent = "N/A",
-											Latitude = "N/A",
-											Longitude = "N/A",
-										};
-									}
-								}
-
-							json = location.ToJson(false, obj => obj.Remove("LastUpdated"));
-						}
+							}
+							: await Utility.GetLocationAsync(ipAddress, cancellationToken, this.Logger, requestInfo.Session.User.ID).ConfigureAwait(false)).ToJson(false, obj => obj.Remove("LastUpdated"));
 						break;
 				}
 
