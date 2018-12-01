@@ -21,7 +21,7 @@ namespace net.vieapps.Services.IPLocations
 	{
 		public override string ServiceName => "IPLocations";
 
-		public override void Start(string[] args = null, bool initializeRepository = true, Func<ServiceBase, Task> nextAsync = null)
+		public override void Start(string[] args = null, bool initializeRepository = true, Func<IService, Task> nextAsync = null)
 			=> base.Start(args, initializeRepository, async (service) =>
 			{
 				// prepare
@@ -48,15 +48,15 @@ namespace net.vieapps.Services.IPLocations
 					}
 			});
 
-		public override async Task<JObject> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
+		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
 		{
 			var stopwatch = Stopwatch.StartNew();
-			this.Logger.LogInformation($"Begin request ({requestInfo.Verb} {requestInfo.URI}) [{requestInfo.CorrelationID}]");
+			this.Logger.LogInformation($"Begin request ({requestInfo.Verb} {requestInfo.GetURI()}) [{requestInfo.CorrelationID}]");
 			try
 			{
 				// prepare
 				if (!requestInfo.Verb.IsEquals("GET"))
-					throw new InvalidRequestException($"The request is invalid ({requestInfo.Verb} {requestInfo.URI})");
+					throw new InvalidRequestException($"The request is invalid ({requestInfo.Verb} {requestInfo.GetURI()})");
 
 				JObject json = null;
 				switch (requestInfo.ObjectName.ToLower())
@@ -90,7 +90,7 @@ namespace net.vieapps.Services.IPLocations
 						// prepare
 						var ipAddress = requestInfo.GetQueryParameter("ip-address");
 						if (string.IsNullOrWhiteSpace(ipAddress))
-							throw new InvalidRequestException($"The request is invalid ({requestInfo.Verb} {requestInfo.URI})");
+							throw new InvalidRequestException($"The request is invalid ({requestInfo.Verb} {requestInfo.GetURI()})");
 
 						// same location
 						json = (Utility.IsSameLocation(ipAddress)
