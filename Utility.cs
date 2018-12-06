@@ -48,12 +48,20 @@ namespace net.vieapps.Services.IPLocations
 			if (ConfigurationManager.GetSection("net.vieapps.iplocations.providers") is AppConfigurationSectionHandler config)
 			{
 				if (config.Section.SelectNodes("provider") is XmlNodeList xmlProviders)
-					xmlProviders.ToList().ForEach(xmlProvider => providers[xmlProvider.Attributes["name"].Value] = new Provider
-					{
-						Name = xmlProvider.Attributes["name"].Value,
-						UriPattern = xmlProvider.Attributes["uriPattern"].Value,
-						AccessKey = xmlProvider.Attributes["accessKey"].Value
-					});
+					xmlProviders.ToList()
+						.Select(xmlProvider => new
+						{
+							Name = xmlProvider.Attributes["name"]?.Value,
+							UriPattern = xmlProvider.Attributes["uriPattern"]?.Value,
+							AccessKey = xmlProvider.Attributes["accessKey"]?.Value
+						})
+						.Where(info => !string.IsNullOrWhiteSpace(info.Name) && !string.IsNullOrWhiteSpace(info.UriPattern))
+						.ForEach(info => providers[info.Name] = new Provider
+						{
+							Name = info.Name,
+							UriPattern = info.UriPattern,
+							AccessKey = info.AccessKey
+						});
 
 				firstProviderName = config.Section.Attributes["first"]?.Value ?? "ipstack";
 				secondProviderName = config.Section.Attributes["second"]?.Value ?? "ipapi";
