@@ -60,7 +60,7 @@ namespace net.vieapps.Services.IPLocations
 						{
 							Name = info.Name,
 							UriPattern = info.UriPattern,
-							AccessKey = info.AccessKey
+							AccessKey = info.AccessKey ?? ""
 						});
 
 				firstProviderName = config.Section.Attributes["first"]?.Value ?? "ipstack";
