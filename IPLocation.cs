@@ -12,10 +12,10 @@ using net.vieapps.Components.Repository;
 namespace net.vieapps.Services.IPLocations
 {
 	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("IP = {IP}, City = {City}, Country = {Country}")]
-	[Entity(CollectionName = "IPLocations", TableName = "T_IPLocations_Info", CacheClass = typeof(Utility), CacheName = "Cache")]
+	[Entity(CollectionName = "IPLocations", TableName = "T_IPLocations", CacheClass = typeof(Utility), CacheName = "Cache")]
 	public class IPLocation : Repository<IPLocation>
 	{
-		public IPLocation() => this.ID = "";
+		public IPLocation() : base() { }
 
 		#region Properties
 		/// <summary>

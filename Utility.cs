@@ -45,40 +45,22 @@ namespace net.vieapps.Services.IPLocations
 			var firstProviderName = "ipstack";
 			var secondProviderName = "ipapi";
 			var sameLocationRegex = @"\d{1,3}\.\d{1,3}\.\d{1,3}";
-			if (ConfigurationManager.GetSection("net.vieapps.iplocations.providers") is AppConfigurationSectionHandler config)
-			{
-				if (config.Section.SelectNodes("provider") is XmlNodeList xmlProviders)
-					xmlProviders.ToList()
-						.Select(xmlProvider => new
-						{
-							Name = xmlProvider.Attributes["name"]?.Value,
-							UriPattern = xmlProvider.Attributes["uriPattern"]?.Value,
-							AccessKey = xmlProvider.Attributes["accessKey"]?.Value
-						})
-						.Where(info => !string.IsNullOrWhiteSpace(info.Name) && !string.IsNullOrWhiteSpace(info.UriPattern))
-						.ForEach(info => providers[info.Name] = new Provider
-						{
-							Name = info.Name,
-							UriPattern = info.UriPattern,
-							AccessKey = info.AccessKey ?? ""
-						});
 
-				firstProviderName = config.Section.Attributes["first"]?.Value ?? "ipstack";
-				secondProviderName = config.Section.Attributes["second"]?.Value ?? "ipapi";
-				sameLocationRegex = config.Section.Attributes["sameLocationRegex"]?.Value ?? @"\d{1,3}\.\d{1,3}\.\d{1,3}";
+			if (ConfigurationManager.GetSection("net.vieapps.services.iplocations.providers") is AppConfigurationSectionHandler svcConfig)
+			{
+				if (svcConfig.Section.SelectNodes("provider") is XmlNodeList svcProviders)
+					providers = svcProviders.ToList()
+						.Select(svcProvider => new Provider(svcProvider.Attributes["name"]?.Value, svcProvider.Attributes["uriPattern"]?.Value, svcProvider.Attributes["accessKey"]?.Value ?? ""))
+						.Where(provider => !string.IsNullOrWhiteSpace(provider.Name) && !string.IsNullOrWhiteSpace(provider.UriPattern))
+						.ToDictionary(provider => provider.Name, provider => provider, StringComparer.OrdinalIgnoreCase);
+				firstProviderName = svcConfig.Section.Attributes["first"]?.Value ?? "ipstack";
+				secondProviderName = svcConfig.Section.Attributes["second"]?.Value ?? "ipapi";
+				sameLocationRegex = svcConfig.Section.Attributes["sameLocationRegex"]?.Value ?? @"\d{1,3}\.\d{1,3}\.\d{1,3}";
 			}
 
 			Utility.Providers = providers;
-			Utility.FirstProvider = providers.ContainsKey(firstProviderName)
-				? providers[firstProviderName]
-				: providers.Count > 0
-					? providers.ElementAt(0).Value
-					: null;
-			Utility.SecondProvider = providers.ContainsKey(secondProviderName)
-				? providers[secondProviderName]
-				: providers.Count > 1
-					? providers.ElementAt(providers.Count - 1).Value
-					: null;
+			Utility.FirstProvider = providers.TryGetValue(firstProviderName, out Provider defaultProvider) ? defaultProvider : providers.FirstOrDefault().Value;
+			Utility.SecondProvider = providers.TryGetValue(secondProviderName, out defaultProvider) ? defaultProvider : providers.LastOrDefault().Value;
 			Utility.SameLocationRegex = new Regex(sameLocationRegex);
 		}
 
@@ -287,6 +269,12 @@ namespace net.vieapps.Services.IPLocations
 
 	internal class Provider
 	{
+		public Provider(string name = null, string uriPattern = null, string accessKey = null)
+		{
+			this.Name = name ?? "";
+			this.UriPattern = uriPattern ?? "";
+			this.AccessKey = accessKey ?? "";
+		}
 		public string Name { get; set; } = "";
 		public string UriPattern { get; set; } = "";
 		public string AccessKey { get; set; } = "";
@@ -294,8 +282,7 @@ namespace net.vieapps.Services.IPLocations
 
 	//  --------------------------------------------------------------------------------------------
 
-	[Serializable]
-	[Repository]
+	[Serializable, Repository]
 	public abstract class Repository<T> : RepositoryBase<T> where T : class
 	{
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]

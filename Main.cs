@@ -22,7 +22,7 @@ namespace net.vieapps.Services.IPLocations
 		public override string ServiceName => "IPLocations";
 
 		public override void Start(string[] args = null, bool initializeRepository = true, Func<IService, Task> nextAsync = null)
-			=> base.Start(args, initializeRepository, async (service) =>
+			=> base.Start(args, initializeRepository, async service =>
 			{
 				// prepare
 				await Utility.PrepareAddressesAsync(this.CancellationTokenSource.Token).ConfigureAwait(false);
