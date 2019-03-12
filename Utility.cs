@@ -27,7 +27,7 @@ namespace net.vieapps.Services.IPLocations
 {
 	public static class Utility
 	{
-		public static Cache Cache { get; } = new Cache("VIEApps-Services-IPLocations", UtilityService.GetAppSetting("Cache:ExpirationTime", "30").CastAs<int>(), false, UtilityService.GetAppSetting("Cache:Provider"), Logger.GetLoggerFactory());
+		public static Cache Cache { get; internal set; }
 
 		internal static Dictionary<string, Provider> Providers { get; private set; } = null;
 
@@ -109,12 +109,34 @@ namespace net.vieapps.Services.IPLocations
 			};
 		}
 
+		internal static async Task<IPLocation> GetByKeyCdnAsync(string ipAddress, CancellationToken cancellationToken = default(CancellationToken))
+		{
+			var json = JObject.Parse(await UtilityService.GetWebPageAsync(Utility.Providers["keycdn"].GetUrl(ipAddress), null, null, cancellationToken).ConfigureAwait(false));
+			if ("success" != json.Get<string>("status"))
+				throw new RemoteServerErrorException(json.Get<string>("description"), null);
+			json = json["data"]["geo"] as JObject;
+			return new IPLocation
+			{
+				ID = json.Get<string>("ip").GenerateUUID(),
+				IP = json.Get<string>("ip"),
+				City = json.Get<string>("city"),
+				Region = json.Get<string>("region_name"),
+				Country = json.Get<string>("country_name"),
+				Continent = json.Get<string>("continent_name"),
+				Latitude = json.Get<string>("latitude"),
+				Longitude = json.Get<string>("longitude"),
+			};
+		}
+
 		internal static Task<IPLocation> GetAsync(string providerName, string ipAddress, CancellationToken cancellationToken = default(CancellationToken))
 		{
 			switch ((providerName ?? "ipstack").ToLower())
 			{
 				case "ipstack":
 					return Utility.GetByIpStackAsync(ipAddress, cancellationToken);
+
+				case "keycdn":
+					return Utility.GetByKeyCdnAsync(ipAddress, cancellationToken);
 
 				case "ipapi":
 				default:
@@ -130,6 +152,8 @@ namespace net.vieapps.Services.IPLocations
 				try
 				{
 					location = await Utility.GetAsync(Utility.FirstProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
+					if (string.IsNullOrWhiteSpace(location.City))
+						location = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
 					location.LastUpdated = DateTime.Now;
 					try
 					{

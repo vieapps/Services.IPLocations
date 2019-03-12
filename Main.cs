@@ -13,6 +13,7 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
+using net.vieapps.Components.Caching;
 #endregion
 
 namespace net.vieapps.Services.IPLocations
@@ -22,7 +23,12 @@ namespace net.vieapps.Services.IPLocations
 		public override string ServiceName => "IPLocations";
 
 		public override void Start(string[] args = null, bool initializeRepository = true, Func<IService, Task> nextAsync = null)
-			=> base.Start(args, initializeRepository, async service =>
+		{
+			// initialize caching storage
+			Utility.Cache = new Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
+
+			// start the service
+			base.Start(args, initializeRepository, async service =>
 			{
 				// prepare
 				await Utility.PrepareAddressesAsync(this.CancellationTokenSource.Token).ConfigureAwait(false);
@@ -47,6 +53,7 @@ namespace net.vieapps.Services.IPLocations
 						this.Logger.LogError("Error occurred while invoking the next action", ex);
 					}
 			});
+		}
 
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
 		{
