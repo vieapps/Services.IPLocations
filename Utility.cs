@@ -19,7 +19,6 @@ using MongoDB.Bson.Serialization.Attributes;
 
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
-using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
 #endregion
 
@@ -27,7 +26,7 @@ namespace net.vieapps.Services.IPLocations
 {
 	public static class Utility
 	{
-		public static Cache Cache { get; internal set; }
+		public static Components.Caching.Cache Cache { get; internal set; }
 
 		internal static Dictionary<string, Provider> Providers { get; private set; } = null;
 

@@ -13,7 +13,6 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
-using net.vieapps.Components.Caching;
 #endregion
 
 namespace net.vieapps.Services.IPLocations
@@ -25,7 +24,7 @@ namespace net.vieapps.Services.IPLocations
 		public override void Start(string[] args = null, bool initializeRepository = true, Func<IService, Task> nextAsync = null)
 		{
 			// initialize caching storage
-			Utility.Cache = new Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
+			Utility.Cache = new Components.Caching.Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
 
 			// start the service
 			base.Start(args, initializeRepository, async service =>
@@ -58,7 +57,7 @@ namespace net.vieapps.Services.IPLocations
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
 		{
 			var stopwatch = Stopwatch.StartNew();
-			this.Logger.LogInformation($"Begin request ({requestInfo.Verb} {requestInfo.GetURI()}) [{requestInfo.CorrelationID}]");
+			this.WriteLogs(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})");
 			try
 			{
 				// prepare
@@ -118,9 +117,9 @@ namespace net.vieapps.Services.IPLocations
 
 				// response
 				stopwatch.Stop();
-				this.Logger.LogInformation($"Success response - Execution times: {stopwatch.GetElapsedTimes()} [{requestInfo.CorrelationID}]");
+				this.WriteLogs(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}");
 				if (this.IsDebugResultsEnabled)
-					this.Logger.LogInformation(
+					this.WriteLogs(requestInfo,
 						$"- Request: {requestInfo.ToJson().ToString(this.IsDebugLogEnabled ? Formatting.Indented : Formatting.None)}" + "\r\n" +
 						$"- Response: {json?.ToString(this.IsDebugLogEnabled ? Formatting.Indented : Formatting.None)}"
 					);
