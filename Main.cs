@@ -58,77 +58,78 @@ namespace net.vieapps.Services.IPLocations
 		{
 			var stopwatch = Stopwatch.StartNew();
 			this.WriteLogs(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})");
-			try
-			{
-				// prepare
-				if (!requestInfo.Verb.IsEquals("GET"))
-					throw new InvalidRequestException($"The request is invalid ({requestInfo.Verb} {requestInfo.GetURI()})");
-
-				JObject json = null;
-				switch (requestInfo.ObjectName.ToLower())
+			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationTokenSource.Token))
+				try
 				{
-					case "public":
-					case "public-ips":
-						var publicAddresses = new JArray();
-						Utility.PublicAddresses.ForEach(addr => publicAddresses.Add(new JValue($"{addr}")));
-						json = new JObject
-						{
-							{ "IPs", publicAddresses }
-						};
-						break;
+					// prepare
+					if (!requestInfo.Verb.IsEquals("GET"))
+						throw new InvalidRequestException($"The request is invalid ({requestInfo.Verb} {requestInfo.GetURI()})");
 
-					case "local":
-					case "local-ips":
-						var localAddresses = new JArray();
-						Utility.LocalAddresses.ForEach(addr => localAddresses.Add(new JValue($"{addr}")));
-						json = new JObject
-						{
-							{ "IPs", localAddresses }
-						};
-						break;
-
-					case "current":
-					case "currentlocation":
-						json = (await Utility.GetCurrentLocationAsync(cancellationToken, this.Logger, requestInfo.Session.User.ID).ConfigureAwait(false)).ToJson(false, obj => obj.Remove("LastUpdated"));
-						break;
-
-					default:
-						// prepare
-						var ipAddress = requestInfo.GetQueryParameter("ip-address");
-						if (string.IsNullOrWhiteSpace(ipAddress))
-							throw new InvalidRequestException($"The request is invalid ({requestInfo.Verb} {requestInfo.GetURI()})");
-
-						// same location
-						json = (Utility.IsSameLocation(ipAddress)
-							? new IPLocation
+					JObject json = null;
+					switch (requestInfo.ObjectName.ToLower())
+					{
+						case "public":
+						case "public-ips":
+							var publicAddresses = new JArray();
+							Utility.PublicAddresses.ForEach(addr => publicAddresses.Add(new JValue($"{addr}")));
+							json = new JObject
 							{
-								ID = ipAddress.GetMD5(),
-								IP = ipAddress,
-								City = "N/A",
-								Region = "N/A",
-								Country = "N/A",
-								Continent = "N/A",
-								Latitude = "N/A",
-								Longitude = "N/A",
-							}
-							: await Utility.GetLocationAsync(ipAddress, cancellationToken, this.Logger, requestInfo.Session.User.ID).ConfigureAwait(false)).ToJson(false, obj => obj.Remove("LastUpdated"));
-						break;
-				}
+								{ "IPs", publicAddresses }
+							};
+							break;
 
-				// response
-				stopwatch.Stop();
-				this.WriteLogs(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}");
-				if (this.IsDebugResultsEnabled)
-					this.WriteLogs(requestInfo,
-						$"- Request: {requestInfo.ToJson().ToString(this.IsDebugLogEnabled ? Formatting.Indented : Formatting.None)}" + "\r\n" +
-						$"- Response: {json?.ToString(this.IsDebugLogEnabled ? Formatting.Indented : Formatting.None)}"
-					);
-				return json;
-			}
-			catch (Exception ex)
-			{
-				throw this.GetRuntimeException(requestInfo, ex, stopwatch);
-			}
+						case "local":
+						case "local-ips":
+							var localAddresses = new JArray();
+							Utility.LocalAddresses.ForEach(addr => localAddresses.Add(new JValue($"{addr}")));
+							json = new JObject
+							{
+								{ "IPs", localAddresses }
+							};
+							break;
+
+						case "current":
+						case "currentlocation":
+							json = (await Utility.GetCurrentLocationAsync(cts.Token, this.Logger, requestInfo.Session.User.ID).ConfigureAwait(false)).ToJson(false, obj => obj.Remove("LastUpdated"));
+							break;
+
+						default:
+							// prepare
+							var ipAddress = requestInfo.GetQueryParameter("ip-address");
+							if (string.IsNullOrWhiteSpace(ipAddress))
+								throw new InvalidRequestException($"The request is invalid ({requestInfo.Verb} {requestInfo.GetURI()})");
+
+							// same location
+							json = (Utility.IsSameLocation(ipAddress)
+								? new IPLocation
+									{
+										ID = ipAddress.GetMD5(),
+										IP = ipAddress,
+										City = "N/A",
+										Region = "N/A",
+										Country = "N/A",
+										Continent = "N/A",
+										Latitude = "N/A",
+										Longitude = "N/A",
+									}
+								: await Utility.GetLocationAsync(ipAddress, cts.Token, this.Logger, requestInfo.Session.User.ID).ConfigureAwait(false)).ToJson(false, obj => obj.Remove("LastUpdated"));
+							break;
+					}
+
+					// response
+					stopwatch.Stop();
+					this.WriteLogs(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}");
+					if (this.IsDebugResultsEnabled)
+						this.WriteLogs(requestInfo,
+							$"- Request: {requestInfo.ToJson().ToString(this.IsDebugLogEnabled ? Formatting.Indented : Formatting.None)}" + "\r\n" +
+							$"- Response: {json?.ToString(this.IsDebugLogEnabled ? Formatting.Indented : Formatting.None)}"
+						);
+					return json;
+				}
+				catch (Exception ex)
+				{
+					throw this.GetRuntimeException(requestInfo, ex, stopwatch);
+				}
 		}
 	}
 }
