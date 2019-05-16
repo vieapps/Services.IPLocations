@@ -95,7 +95,7 @@ namespace net.vieapps.Services.IPLocations
 
 						default:
 							// prepare
-							var ipAddress = requestInfo.GetQueryParameter("ip-address");
+							var ipAddress = requestInfo.GetQueryParameter("ip-address") ?? requestInfo.Session.IP;
 							if (string.IsNullOrWhiteSpace(ipAddress))
 								throw new InvalidRequestException($"The request is invalid ({requestInfo.Verb} {requestInfo.GetURI()})");
 
