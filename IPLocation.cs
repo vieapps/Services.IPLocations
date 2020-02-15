@@ -1,13 +1,10 @@
-﻿#region Related components
-using System;
+﻿using System;
 using System.Diagnostics;
-
+using System.Xml.Serialization;
 using Newtonsoft.Json;
 using MongoDB.Bson.Serialization.Attributes;
-
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
-#endregion
 
 namespace net.vieapps.Services.IPLocations
 {
@@ -17,7 +14,6 @@ namespace net.vieapps.Services.IPLocations
 	{
 		public IPLocation() : base() { }
 
-		#region Properties
 		/// <summary>
 		/// Gets or sets the IP address
 		/// </summary>
@@ -65,24 +61,20 @@ namespace net.vieapps.Services.IPLocations
 		/// </summary>
 		[Sortable(IndexName = "Time")]
 		public DateTime LastUpdated { get; set; } = DateTime.Now.AddDays(-31);
-		#endregion
 
-		#region IBusinessEntity properties
-		[JsonIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, XmlIgnore, BsonIgnore]
 		public override string Title { get; set; }
 
-		[JsonIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, XmlIgnore, BsonIgnore]
 		public override string SystemID { get; set; }
 
-		[JsonIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, XmlIgnore, BsonIgnore]
 		public override string RepositoryID { get; set; }
 
-		[JsonIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, XmlIgnore, BsonIgnore]
 		public override string EntityID { get; set; }
 
-		[JsonIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, XmlIgnore, BsonIgnore]
 		public override Privileges OriginalPrivileges { get; set; }
-		#endregion
-
 	}
 }

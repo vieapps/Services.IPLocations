@@ -67,13 +67,13 @@ namespace net.vieapps.Services.IPLocations
 
 		internal static List<IPAddress> LocalAddresses { get; } = new List<IPAddress>();
 
-		internal static async Task<IPAddress> GetByDynDnsAsync(CancellationToken cancellationToken = default(CancellationToken))
+		internal static async Task<IPAddress> GetByDynDnsAsync(CancellationToken cancellationToken = default)
 			=> IPAddress.Parse(Utility.PublicAddressRegex.Matches(await UtilityService.GetWebPageAsync("http://checkip.dyndns.org/", null, null, cancellationToken).ConfigureAwait(false))[0].ToString());
 
-		internal static async Task<IPAddress> GetByIpifyAsync(CancellationToken cancellationToken = default(CancellationToken))
+		internal static async Task<IPAddress> GetByIpifyAsync(CancellationToken cancellationToken = default)
 			=> IPAddress.Parse(Utility.PublicAddressRegex.Matches(await UtilityService.GetWebPageAsync("http://api.ipify.org/", null, null, cancellationToken).ConfigureAwait(false))[0].ToString());
 
-		internal static async Task<IPLocation> GetByIpStackAsync(string ipAddress, CancellationToken cancellationToken = default(CancellationToken))
+		internal static async Task<IPLocation> GetByIpStackAsync(string ipAddress, CancellationToken cancellationToken = default)
 		{
 			var json = JObject.Parse(await UtilityService.GetWebPageAsync(Utility.Providers["ipstack"].GetUrl(ipAddress), null, null, cancellationToken).ConfigureAwait(false));
 			return json["error"] is JObject error
@@ -91,7 +91,7 @@ namespace net.vieapps.Services.IPLocations
 				};
 		}
 
-		internal static async Task<IPLocation> GetByIpApiAsync(string ipAddress, CancellationToken cancellationToken = default(CancellationToken))
+		internal static async Task<IPLocation> GetByIpApiAsync(string ipAddress, CancellationToken cancellationToken = default)
 		{
 			var json = JObject.Parse(await UtilityService.GetWebPageAsync(Utility.Providers["ipapi"].GetUrl(ipAddress), null, null, cancellationToken).ConfigureAwait(false));
 			var continent = json.Get<string>("timezone");
@@ -108,7 +108,7 @@ namespace net.vieapps.Services.IPLocations
 			};
 		}
 
-		internal static async Task<IPLocation> GetByKeyCdnAsync(string ipAddress, CancellationToken cancellationToken = default(CancellationToken))
+		internal static async Task<IPLocation> GetByKeyCdnAsync(string ipAddress, CancellationToken cancellationToken = default)
 		{
 			var json = JObject.Parse(await UtilityService.GetWebPageAsync(Utility.Providers["keycdn"].GetUrl(ipAddress), null, null, cancellationToken).ConfigureAwait(false));
 			if ("success" != json.Get<string>("status"))
@@ -127,7 +127,7 @@ namespace net.vieapps.Services.IPLocations
 			};
 		}
 
-		internal static Task<IPLocation> GetAsync(string providerName, string ipAddress, CancellationToken cancellationToken = default(CancellationToken))
+		internal static Task<IPLocation> GetAsync(string providerName, string ipAddress, CancellationToken cancellationToken = default)
 		{
 			switch ((providerName ?? "ipstack").ToLower())
 			{
@@ -143,7 +143,7 @@ namespace net.vieapps.Services.IPLocations
 			}
 		}
 
-		internal static async Task<IPLocation> GetLocationAsync(string ipAddress, CancellationToken cancellationToken = default(CancellationToken), ILogger logger = null, string userID = null)
+		internal static async Task<IPLocation> GetLocationAsync(string ipAddress, CancellationToken cancellationToken = default, ILogger logger = null, string userID = null)
 		{
 			var location = await IPLocation.GetAsync<IPLocation>(ipAddress.GenerateUUID(), cancellationToken).ConfigureAwait(false);
 			var isUpdate = location != null;
@@ -212,7 +212,7 @@ namespace net.vieapps.Services.IPLocations
 			return location;
 		}
 
-		internal static Task<IPLocation> GetCurrentLocationAsync(CancellationToken cancellationToken = default(CancellationToken), ILogger logger = null, string userID = null)
+		internal static Task<IPLocation> GetCurrentLocationAsync(CancellationToken cancellationToken = default, ILogger logger = null, string userID = null)
 		{
 			IPAddress ipAddress = null;
 			foreach (var address in Utility.PublicAddresses)
@@ -253,7 +253,7 @@ namespace net.vieapps.Services.IPLocations
 		internal static string GetUrl(this Provider provider, string ipAddress)
 			=> provider.UriPattern.Replace(StringComparison.OrdinalIgnoreCase, "{ip}", ipAddress).Replace(StringComparison.OrdinalIgnoreCase, "{accessKey}", provider.AccessKey);
 
-		internal static async Task PrepareAddressesAsync(CancellationToken cancellationToken = default(CancellationToken))
+		internal static async Task PrepareAddressesAsync(CancellationToken cancellationToken = default)
 		{
 			Utility.PrepareProviders();
 			Dns.GetHostAddresses(Dns.GetHostName()).ForEach(ipAddress =>
@@ -308,7 +308,7 @@ namespace net.vieapps.Services.IPLocations
 	[Serializable, Repository]
 	public abstract class Repository<T> : RepositoryBase<T> where T : class
 	{
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, XmlIgnore, BsonIgnore]
 		public override string ServiceName => ServiceBase.ServiceComponent.ServiceName;
 	}
 }
