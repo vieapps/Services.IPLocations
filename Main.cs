@@ -21,7 +21,7 @@ namespace net.vieapps.Services.IPLocations
 	{
 		public override string ServiceName => "IPLocations";
 
-		public override void Start(string[] args = null, bool initializeRepository = true, Func<IService, Task> nextAsync = null)
+		public override void Start(string[] args = null, bool initializeRepository = true, Action<IService> next = null)
 		{
 			// initialize caching storage
 			Utility.Cache = new Components.Caching.Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
@@ -42,19 +42,11 @@ namespace net.vieapps.Services.IPLocations
 				this.Logger.LogInformation($"Expression of Same Location (Regex): {Utility.SameLocationRegex}");
 
 				// last action
-				if (nextAsync != null)
-					try
-					{
-						await nextAsync(service).WithCancellationToken(this.CancellationTokenSource.Token).ConfigureAwait(false);
-					}
-					catch (Exception ex)
-					{
-						this.Logger.LogError("Error occurred while invoking the next action", ex);
-					}
+				next?.Invoke(this);
 			});
 		}
 
-		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
+		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			var stopwatch = Stopwatch.StartNew();
 			this.WriteLogs(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})");
