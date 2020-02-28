@@ -27,11 +27,11 @@ namespace net.vieapps.Services.IPLocations
 			Utility.Cache = new Components.Caching.Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
 
 			// start the service
-			base.Start(args, initializeRepository, async service =>
+			base.Start(args, initializeRepository, async _ =>
 			{
 				// prepare
-				await Utility.PrepareAddressesAsync(this.CancellationTokenSource.Token).ConfigureAwait(false);
-				var currentLocation = await Utility.GetCurrentLocationAsync(this.CancellationTokenSource.Token).ConfigureAwait(false);
+				await Utility.PrepareAddressesAsync(this.CancellationTokenSource.Token, this.Logger).ConfigureAwait(false);
+				var currentLocation = await Utility.GetCurrentLocationAsync(this.CancellationTokenSource.Token, this.Logger).ConfigureAwait(false);
 
 				this.Logger.LogInformation($"Providers: {string.Join(", ", Utility.Providers.Keys)}");
 				this.Logger.LogInformation($"First provider: {Utility.FirstProvider?.Name ?? "N/A"}");

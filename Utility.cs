@@ -10,13 +10,10 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Configuration;
-
 using Microsoft.Extensions.Logging;
-
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using MongoDB.Bson.Serialization.Attributes;
-
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
@@ -156,10 +153,7 @@ namespace net.vieapps.Services.IPLocations
 					location.LastUpdated = DateTime.Now;
 					try
 					{
-						if (isUpdate)
-							await IPLocation.UpdateAsync(location, userID, cancellationToken).ConfigureAwait(false);
-						else
-							await IPLocation.CreateAsync(location, cancellationToken).ConfigureAwait(false);
+						await (isUpdate ? IPLocation.UpdateAsync(location, userID, cancellationToken) : IPLocation.CreateAsync(location, cancellationToken)).ConfigureAwait(false);
 					}
 					catch
 					{
@@ -172,17 +166,14 @@ namespace net.vieapps.Services.IPLocations
 				}
 				catch (Exception fe)
 				{
-					logger.LogError($"Error while processing with \"{Utility.FirstProvider?.Name}\" provider: {fe.Message}", fe);
+					logger?.LogError($"Error while processing with \"{Utility.FirstProvider?.Name}\" provider: {fe.Message}", fe);
 					try
 					{
 						location = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
 						location.LastUpdated = DateTime.Now;
 						try
 						{
-							if (isUpdate)
-								await IPLocation.UpdateAsync(location, userID, cancellationToken).ConfigureAwait(false);
-							else
-								await IPLocation.CreateAsync(location, cancellationToken).ConfigureAwait(false);
+							await (isUpdate ? IPLocation.UpdateAsync(location, userID, cancellationToken) : IPLocation.CreateAsync(location, cancellationToken)).ConfigureAwait(false);
 						}
 						catch
 						{
@@ -195,7 +186,7 @@ namespace net.vieapps.Services.IPLocations
 					}
 					catch (Exception se)
 					{
-						logger.LogError($"Error while processing with \"{Utility.SecondProvider?.Name}\" provider: {se.Message}", se);
+						logger?.LogError($"Error while processing with \"{Utility.SecondProvider?.Name}\" provider: {se.Message}", se);
 						location = new IPLocation
 						{
 							ID = ipAddress.GenerateUUID(),
@@ -253,14 +244,29 @@ namespace net.vieapps.Services.IPLocations
 		internal static string GetUrl(this Provider provider, string ipAddress)
 			=> provider.UriPattern.Replace(StringComparison.OrdinalIgnoreCase, "{ip}", ipAddress).Replace(StringComparison.OrdinalIgnoreCase, "{accessKey}", provider.AccessKey);
 
-		internal static async Task PrepareAddressesAsync(CancellationToken cancellationToken = default)
+		internal static async Task PrepareAddressesAsync(CancellationToken cancellationToken = default, ILogger logger = null)
 		{
-			Utility.PrepareProviders();
-			Dns.GetHostAddresses(Dns.GetHostName()).ForEach(ipAddress =>
+			try
 			{
-				if (Utility.LocalAddresses.Find(ipAddress) == null)
-					Utility.LocalAddresses.Add(ipAddress);
-			});
+				Utility.PrepareProviders();
+			}
+			catch (Exception ex)
+			{
+				logger?.LogError($"Error occurred while preparing providers => {ex.Message}", ex);
+			}
+
+			try
+			{
+				Dns.GetHostAddresses(Dns.GetHostName()).ToList().ForEach(ipAddress =>
+				{
+					if (Utility.LocalAddresses.Find(ipAddress) == null)
+						Utility.LocalAddresses.Add(ipAddress);
+				});
+			}
+			catch (Exception ex)
+			{
+				logger?.LogError($"Error occurred while preparing local IP addresses => {ex.Message}", ex);
+			}
 
 			async Task getByDynDnsAsync()
 			{
@@ -270,7 +276,10 @@ namespace net.vieapps.Services.IPLocations
 					if (Utility.PublicAddresses.Find(ipAddress) == null)
 						Utility.PublicAddresses.Add(ipAddress);
 				}
-				catch { }
+				catch (Exception ex)
+				{
+					logger?.LogError($"Error occurred while getting IP address by DynDNS => {ex.Message}", ex);
+				}
 			}
 
 			async Task getByIpifyAsync()
@@ -281,7 +290,10 @@ namespace net.vieapps.Services.IPLocations
 					if (Utility.PublicAddresses.Find(ipAddress) == null)
 						Utility.PublicAddresses.Add(ipAddress);
 				}
-				catch { }
+				catch (Exception ex)
+				{
+					logger?.LogError($"Error occurred while getting IP address by IPify => {ex.Message}", ex);
+				}
 			}
 
 			await Task.WhenAny(getByDynDnsAsync(), getByIpifyAsync()).ConfigureAwait(false);
