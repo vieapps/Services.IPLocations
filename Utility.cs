@@ -142,9 +142,18 @@ namespace net.vieapps.Services.IPLocations
 
 		internal static async Task<IPLocation> GetLocationAsync(string ipAddress, CancellationToken cancellationToken = default, ILogger logger = null, string userID = null)
 		{
-			var location = await IPLocation.GetAsync<IPLocation>(ipAddress.GenerateUUID(), cancellationToken).ConfigureAwait(false);
+			IPLocation location = null;
+			try
+			{
+				location = await IPLocation.GetAsync<IPLocation>(ipAddress.GenerateUUID(), cancellationToken).ConfigureAwait(false);
+			}
+			catch (Exception ex)
+			{
+				logger?.LogError($"Error occurred while fetching IP address from database [\"{ipAddress}\"] => {ex.Message}", ex);
+			}
+
 			var isUpdate = location != null;
-			if (!isUpdate || (DateTime.Now - location.LastUpdated).Days > 30)
+			if (!isUpdate || (location != null && (DateTime.Now - location.LastUpdated).Days > 30))
 				try
 				{
 					location = await Utility.GetAsync(Utility.FirstProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
@@ -166,7 +175,7 @@ namespace net.vieapps.Services.IPLocations
 				}
 				catch (Exception fe)
 				{
-					logger?.LogError($"Error while processing with \"{Utility.FirstProvider?.Name}\" provider: {fe.Message}", fe);
+					logger?.LogError($"Error occurred while processing with \"{Utility.FirstProvider?.Name}\" provider: {fe.Message}", fe);
 					try
 					{
 						location = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
@@ -186,7 +195,7 @@ namespace net.vieapps.Services.IPLocations
 					}
 					catch (Exception se)
 					{
-						logger?.LogError($"Error while processing with \"{Utility.SecondProvider?.Name}\" provider: {se.Message}", se);
+						logger?.LogError($"Error occurred while processing with \"{Utility.SecondProvider?.Name}\" provider: {se.Message}", se);
 						location = new IPLocation
 						{
 							ID = ipAddress.GenerateUUID(),
@@ -207,7 +216,7 @@ namespace net.vieapps.Services.IPLocations
 		{
 			IPAddress ipAddress = null;
 			foreach (var address in Utility.PublicAddresses)
-				if ($"{address}".IndexOf(".") > 0)
+				if ($"{address}".IndexOf(".") > 0 || $"{address}".IndexOf(":") > 0)
 				{
 					ipAddress = address;
 					break;
