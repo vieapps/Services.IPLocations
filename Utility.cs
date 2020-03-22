@@ -150,22 +150,28 @@ namespace net.vieapps.Services.IPLocations
 			catch (Exception ex)
 			{
 				logger?.LogError($"Error occurred while fetching IP address from database [\"{ipAddress}\"] => {ex.Message}", ex);
+				location = await Utility.Cache.FetchAsync<IPLocation>(ipAddress.GenerateUUID(), cancellationToken).ConfigureAwait(false);
 			}
 
-			var isUpdate = location != null;
-			if (!isUpdate || (location != null && (DateTime.Now - location.LastUpdated).Days > 30))
+			var callUpdateMethod = location != null;
+
+			if (location == null || (DateTime.Now - location.LastUpdated).Days > 30)
 				try
 				{
 					location = await Utility.GetAsync(Utility.FirstProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
 					if (string.IsNullOrWhiteSpace(location.City))
 						location = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
 					location.LastUpdated = DateTime.Now;
+
 					try
 					{
-						await (isUpdate ? IPLocation.UpdateAsync(location, userID, cancellationToken) : IPLocation.CreateAsync(location, cancellationToken)).ConfigureAwait(false);
+						await (callUpdateMethod ? IPLocation.UpdateAsync(location, userID, cancellationToken) : IPLocation.CreateAsync(location, cancellationToken)).ConfigureAwait(false);
 					}
-					catch
+					catch (Exception ex)
 					{
+						logger?.LogError($"Error occurred while processing with database while working with \"{Utility.FirstProvider?.Name}\" provider => {ex.Message}", ex);
+						if (location != null)
+							await Utility.Cache.SetAsync(location, cancellationToken).ConfigureAwait(false);
 						try
 						{
 							await IPLocation.UpdateAsync(location, userID, cancellationToken).ConfigureAwait(false);
@@ -175,17 +181,20 @@ namespace net.vieapps.Services.IPLocations
 				}
 				catch (Exception fe)
 				{
-					logger?.LogError($"Error occurred while processing with \"{Utility.FirstProvider?.Name}\" provider: {fe.Message}", fe);
+					logger?.LogError($"Error occurred while processing with \"{Utility.FirstProvider?.Name}\" provider => {fe.Message}", fe);
 					try
 					{
 						location = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
 						location.LastUpdated = DateTime.Now;
 						try
 						{
-							await (isUpdate ? IPLocation.UpdateAsync(location, userID, cancellationToken) : IPLocation.CreateAsync(location, cancellationToken)).ConfigureAwait(false);
+							await (callUpdateMethod ? IPLocation.UpdateAsync(location, userID, cancellationToken) : IPLocation.CreateAsync(location, cancellationToken)).ConfigureAwait(false);
 						}
-						catch
+						catch (Exception ex)
 						{
+							logger?.LogError($"Error occurred while processing with database while working with \"{Utility.SecondProvider?.Name}\" provider => {ex.Message}", ex);
+							if (location != null)
+								await Utility.Cache.SetAsync(location, cancellationToken).ConfigureAwait(false);
 							try
 							{
 								await IPLocation.UpdateAsync(location, userID, cancellationToken).ConfigureAwait(false);
@@ -196,7 +205,7 @@ namespace net.vieapps.Services.IPLocations
 					catch (Exception se)
 					{
 						logger?.LogError($"Error occurred while processing with \"{Utility.SecondProvider?.Name}\" provider: {se.Message}", se);
-						location = new IPLocation
+						location = location ?? new IPLocation
 						{
 							ID = ipAddress.GenerateUUID(),
 							IP = ipAddress,
@@ -209,6 +218,7 @@ namespace net.vieapps.Services.IPLocations
 						};
 					}
 				}
+
 			return location;
 		}
 
