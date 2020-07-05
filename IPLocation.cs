@@ -72,7 +72,7 @@ namespace net.vieapps.Services.IPLocations
 		public override string RepositoryID { get; set; }
 
 		[Ignore, JsonIgnore, XmlIgnore, BsonIgnore]
-		public override string EntityID { get; set; }
+		public override string RepositoryEntityID { get; set; }
 
 		[Ignore, JsonIgnore, XmlIgnore, BsonIgnore]
 		public override Privileges OriginalPrivileges { get; set; }

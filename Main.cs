@@ -31,15 +31,22 @@ namespace net.vieapps.Services.IPLocations
 			{
 				// prepare
 				await Utility.PrepareAddressesAsync(this.CancellationTokenSource.Token, this.Logger).ConfigureAwait(false);
-				var currentLocation = await Utility.GetCurrentLocationAsync(this.CancellationTokenSource.Token, this.Logger).ConfigureAwait(false);
 
 				this.Logger.LogInformation($"Providers: {string.Join(", ", Utility.Providers.Keys)}");
 				this.Logger.LogInformation($"First provider: {Utility.FirstProvider?.Name ?? "N/A"}");
 				this.Logger.LogInformation($"Second provider: {Utility.SecondProvider?.Name ?? "N/A"}");
+				this.Logger.LogInformation($"Expression of Same Location (Regex): {Utility.SameLocationRegex}");
 				this.Logger.LogInformation($"Public Address: {string.Join(" - ", Utility.PublicAddresses)}");
 				this.Logger.LogInformation($"Local Address: {string.Join(" - ", Utility.LocalAddresses)}");
-				this.Logger.LogInformation($"Current Location: {currentLocation.City}, {currentLocation.Region}, {currentLocation.Country}");
-				this.Logger.LogInformation($"Expression of Same Location (Regex): {Utility.SameLocationRegex}");
+				try
+				{
+					var currentLocation = await Utility.GetCurrentLocationAsync(this.CancellationTokenSource.Token, this.Logger).ConfigureAwait(false);
+					this.Logger.LogInformation($"Current Location: {currentLocation.City}, {currentLocation.Region}, {currentLocation.Country}");
+				}
+				catch (Exception ex)
+				{
+					this.Logger.LogError($"Error occurred while fetching current location => {ex.Message}", ex);
+				}
 
 				// last action
 				next?.Invoke(this);
@@ -82,7 +89,7 @@ namespace net.vieapps.Services.IPLocations
 
 						case "current":
 						case "currentlocation":
-							json = (await Utility.GetCurrentLocationAsync(cts.Token, this.Logger, requestInfo.Session.User.ID).ConfigureAwait(false)).ToJson(false, obj => obj.Remove("LastUpdated"));
+							json = (await Utility.GetCurrentLocationAsync(cts.Token, this.Logger, requestInfo.Session.User.ID).ConfigureAwait(false)).ToJson(obj => obj.Remove("LastUpdated"));
 							break;
 
 						default:
@@ -104,7 +111,7 @@ namespace net.vieapps.Services.IPLocations
 										Latitude = "N/A",
 										Longitude = "N/A",
 									}
-								: await Utility.GetLocationAsync(ipAddress, cts.Token, this.Logger, requestInfo.Session.User.ID).ConfigureAwait(false)).ToJson(false, obj => obj.Remove("LastUpdated"));
+								: await Utility.GetLocationAsync(ipAddress, cts.Token, this.Logger, requestInfo.Session.User.ID).ConfigureAwait(false)).ToJson(obj => obj.Remove("LastUpdated"));
 							break;
 					}
 
@@ -112,10 +119,7 @@ namespace net.vieapps.Services.IPLocations
 					stopwatch.Stop();
 					this.WriteLogs(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}");
 					if (this.IsDebugResultsEnabled)
-						this.WriteLogs(requestInfo,
-							$"- Request: {requestInfo.ToString(this.IsDebugLogEnabled ? Formatting.Indented : Formatting.None)}" + "\r\n" +
-							$"- Response: {json?.ToString(this.IsDebugLogEnabled ? Formatting.Indented : Formatting.None)}"
-						);
+						this.WriteLogs(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}");
 					return json;
 				}
 				catch (Exception ex)

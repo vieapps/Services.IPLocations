@@ -142,7 +142,7 @@ namespace net.vieapps.Services.IPLocations
 
 		internal static async Task<IPLocation> GetLocationAsync(string ipAddress, CancellationToken cancellationToken = default, ILogger logger = null, string userID = null)
 		{
-			IPLocation location = null;
+			IPLocation location;
 			try
 			{
 				location = await IPLocation.GetAsync<IPLocation>(ipAddress.GenerateUUID(), cancellationToken).ConfigureAwait(false);
@@ -337,9 +337,5 @@ namespace net.vieapps.Services.IPLocations
 	//  --------------------------------------------------------------------------------------------
 
 	[Serializable, Repository]
-	public abstract class Repository<T> : RepositoryBase<T> where T : class
-	{
-		[Ignore, JsonIgnore, XmlIgnore, BsonIgnore]
-		public override string ServiceName => ServiceBase.ServiceComponent.ServiceName;
-	}
+	public abstract class Repository<T> : RepositoryBase<T> where T : class { }
 }
