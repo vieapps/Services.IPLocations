@@ -8,7 +8,7 @@ using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.IPLocations
 {
-	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("IP = {IP}, City = {City}, Country = {Country}")]
+	[BsonIgnoreExtraElements, DebuggerDisplay("IP = {IP}, City = {City}, Country = {Country}")]
 	[Entity(CollectionName = "IPLocations", TableName = "T_IPLocations", CacheClass = typeof(Utility), CacheName = "Cache")]
 	public class IPLocation : Repository<IPLocation>
 	{
