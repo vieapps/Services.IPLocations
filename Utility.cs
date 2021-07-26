@@ -3,17 +3,13 @@ using System;
 using System.Linq;
 using System.Xml;
 using System.Net;
-using System.Text;
 using System.Text.RegularExpressions;
-using System.Xml.Serialization;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Configuration;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using MongoDB.Bson.Serialization.Attributes;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
@@ -276,7 +272,8 @@ namespace net.vieapps.Services.IPLocations
 
 			try
 			{
-				Dns.GetHostAddresses(Dns.GetHostName()).ToList().ForEach(ipAddress =>
+				var ipAddresses = await Dns.GetHostAddressesAsync(Dns.GetHostName()).WithCancellationToken(cancellationToken).ConfigureAwait(false);
+				ipAddresses.ForEach(ipAddress =>
 				{
 					if (Utility.LocalAddresses.Find(ipAddress) == null)
 						Utility.LocalAddresses.Add(ipAddress);
