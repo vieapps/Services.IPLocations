@@ -18,6 +18,7 @@ namespace net.vieapps.Services.IPLocations
 		{
 			// initialize caching storage
 			Utility.Cache = new Components.Caching.Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
+			this.Syncable = false;
 
 			// start the service
 			base.Start(args, initializeRepository, async _ =>

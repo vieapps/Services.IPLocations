@@ -61,14 +61,14 @@ namespace net.vieapps.Services.IPLocations
 		internal static List<IPAddress> LocalAddresses { get; } = new List<IPAddress>();
 
 		internal static async Task<IPAddress> GetByDynDnsAsync(CancellationToken cancellationToken = default)
-			=> IPAddress.Parse(Utility.PublicAddressRegex.Matches(await UtilityService.GetWebPageAsync("http://checkip.dyndns.org/", null, null, cancellationToken).ConfigureAwait(false))[0].ToString());
+			=> IPAddress.Parse(Utility.PublicAddressRegex.Matches(await UtilityService.FetchHttpAsync("http://checkip.dyndns.org/", cancellationToken).ConfigureAwait(false))[0].ToString());
 
 		internal static async Task<IPAddress> GetByIpifyAsync(CancellationToken cancellationToken = default)
-			=> IPAddress.Parse(Utility.PublicAddressRegex.Matches(await UtilityService.GetWebPageAsync("http://api.ipify.org/", null, null, cancellationToken).ConfigureAwait(false))[0].ToString());
+			=> IPAddress.Parse(Utility.PublicAddressRegex.Matches(await UtilityService.FetchHttpAsync("http://api.ipify.org/", cancellationToken).ConfigureAwait(false))[0].ToString());
 
 		internal static async Task<IPLocation> GetByIpStackAsync(string ipAddress, CancellationToken cancellationToken = default)
 		{
-			var json = JObject.Parse(await UtilityService.GetWebPageAsync(Utility.Providers["ipstack"].GetUrl(ipAddress), null, null, cancellationToken).ConfigureAwait(false));
+			var json = JObject.Parse(await UtilityService.FetchHttpAsync(Utility.Providers["ipstack"].GetUrl(ipAddress), cancellationToken).ConfigureAwait(false));
 			return json["error"] is JObject error
 				? throw new RemoteServerErrorException($"{error.Get<string>("info")} ({error.Get<string>("code")} - {error.Get<string>("type")})", null)
 				: new IPLocation
@@ -86,7 +86,7 @@ namespace net.vieapps.Services.IPLocations
 
 		internal static async Task<IPLocation> GetByIpApiAsync(string ipAddress, CancellationToken cancellationToken = default)
 		{
-			var json = JObject.Parse(await UtilityService.GetWebPageAsync(Utility.Providers["ipapi"].GetUrl(ipAddress), null, null, cancellationToken).ConfigureAwait(false));
+			var json = JObject.Parse(await UtilityService.FetchHttpAsync(Utility.Providers["ipapi"].GetUrl(ipAddress), cancellationToken).ConfigureAwait(false));
 			var continent = json.Get<string>("timezone");
 			return new IPLocation
 			{
@@ -103,7 +103,7 @@ namespace net.vieapps.Services.IPLocations
 
 		internal static async Task<IPLocation> GetByKeyCdnAsync(string ipAddress, CancellationToken cancellationToken = default)
 		{
-			var json = JObject.Parse(await UtilityService.GetWebPageAsync(Utility.Providers["keycdn"].GetUrl(ipAddress), null, null, cancellationToken).ConfigureAwait(false));
+			var json = JObject.Parse(await UtilityService.FetchHttpAsync(Utility.Providers["keycdn"].GetUrl(ipAddress), cancellationToken).ConfigureAwait(false));
 			if ("success" != json.Get<string>("status"))
 				throw new RemoteServerErrorException(json.Get<string>("description"), null);
 			json = json["data"]["geo"] as JObject;
