@@ -61,16 +61,17 @@ namespace net.vieapps.Services.IPLocations
 		internal static List<IPAddress> LocalAddresses { get; } = new List<IPAddress>();
 
 		internal static async Task<IPAddress> GetByDynDnsAsync(CancellationToken cancellationToken = default)
-			=> IPAddress.Parse(Utility.PublicAddressRegex.Matches(await UtilityService.FetchHttpAsync("http://checkip.dyndns.org/", cancellationToken).ConfigureAwait(false))[0].ToString());
+			=> IPAddress.Parse(Utility.PublicAddressRegex.Matches(await new Uri("http://checkip.dyndns.org/").FetchHttpAsync(cancellationToken).ConfigureAwait(false))[0].ToString());
 
 		internal static async Task<IPAddress> GetByIpifyAsync(CancellationToken cancellationToken = default)
-			=> IPAddress.Parse(Utility.PublicAddressRegex.Matches(await UtilityService.FetchHttpAsync("http://api.ipify.org/", cancellationToken).ConfigureAwait(false))[0].ToString());
+			=> IPAddress.Parse(Utility.PublicAddressRegex.Matches(await new Uri("http://api.ipify.org/").FetchHttpAsync(cancellationToken).ConfigureAwait(false))[0].ToString());
 
 		internal static async Task<IPLocation> GetByIpStackAsync(string ipAddress, CancellationToken cancellationToken = default)
 		{
-			var json = JObject.Parse(await UtilityService.FetchHttpAsync(Utility.Providers["ipstack"].GetUrl(ipAddress), cancellationToken).ConfigureAwait(false));
+			var uri = new Uri(Utility.Providers["ipstack"].GetUrl(ipAddress));
+			var json = JObject.Parse(await uri.FetchHttpAsync(cancellationToken).ConfigureAwait(false));
 			return json["error"] is JObject error
-				? throw new RemoteServerErrorException($"{error.Get<string>("info")} ({error.Get<string>("code")} - {error.Get<string>("type")})", null)
+				? throw new RemoteServerException(HttpStatusCode.InternalServerError, false, uri, null, null, $"{error.Get<string>("info")} ({error.Get<string>("code")} - {error.Get<string>("type")})")
 				: new IPLocation
 				{
 					ID = json.Get<string>("ip").GenerateUUID(),
@@ -103,9 +104,10 @@ namespace net.vieapps.Services.IPLocations
 
 		internal static async Task<IPLocation> GetByKeyCdnAsync(string ipAddress, CancellationToken cancellationToken = default)
 		{
-			var json = JObject.Parse(await UtilityService.FetchHttpAsync(Utility.Providers["keycdn"].GetUrl(ipAddress), cancellationToken).ConfigureAwait(false));
+			var uri = new Uri(Utility.Providers["keycdn"].GetUrl(ipAddress));
+			var json = JObject.Parse(await uri.FetchHttpAsync(cancellationToken).ConfigureAwait(false));
 			if ("success" != json.Get<string>("status"))
-				throw new RemoteServerErrorException(json.Get<string>("description"), null);
+				throw new RemoteServerException(HttpStatusCode.InternalServerError, false, uri, null, null, json.Get<string>("description"));
 			json = json["data"]["geo"] as JObject;
 			return new IPLocation
 			{
