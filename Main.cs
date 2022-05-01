@@ -95,16 +95,16 @@ namespace net.vieapps.Services.IPLocations
 							// same location
 							json = (Utility.IsSameLocation(ipAddress)
 								? new IPLocation
-									{
-										ID = ipAddress.GetMD5(),
-										IP = ipAddress,
-										City = "N/A",
-										Region = "N/A",
-										Country = "N/A",
-										Continent = "N/A",
-										Latitude = "N/A",
-										Longitude = "N/A",
-									}
+								{
+									ID = ipAddress.GetMD5(),
+									IP = ipAddress,
+									City = "N/A",
+									Region = "N/A",
+									Country = "N/A",
+									Continent = "N/A",
+									Latitude = "N/A",
+									Longitude = "N/A",
+								}
 								: await Utility.GetLocationAsync(ipAddress, cts.Token, this.Logger, requestInfo.Session.User.ID).ConfigureAwait(false)).ToJson(obj => obj.Remove("LastUpdated"));
 							break;
 					}
