@@ -274,7 +274,7 @@ namespace net.vieapps.Services.IPLocations
 
 			try
 			{
-				var ipAddresses = await Dns.GetHostAddressesAsync(Dns.GetHostName()).WithCancellationToken(cancellationToken).ConfigureAwait(false);
+				var ipAddresses = await Dns.GetHostAddressesAsync(Dns.GetHostName(), cancellationToken).ConfigureAwait(false);
 				ipAddresses.ForEach(ipAddress =>
 				{
 					if (Utility.LocalAddresses.Find(ipAddress) == null)
