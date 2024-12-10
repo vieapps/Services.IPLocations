@@ -71,7 +71,7 @@ namespace net.vieapps.Services.IPLocations
 			var uri = new Uri(Utility.Providers["ipstack"].GetUrl(ipAddress));
 			var json = JObject.Parse(await uri.FetchHttpAsync(cancellationToken).ConfigureAwait(false));
 			return json["error"] is JObject error
-				? throw new RemoteServerException(HttpStatusCode.InternalServerError, false, uri, null, null, $"{error.Get<string>("info")} ({error.Get<string>("code")} - {error.Get<string>("type")})")
+				? throw new RemoteServerException(HttpStatusCode.InternalServerError, false, "GET", uri, null, null, $"{error.Get<string>("info")} ({error.Get<string>("code")} - {error.Get<string>("type")})")
 				: new IPLocation
 				{
 					ID = json.Get<string>("ip").GenerateUUID(),
@@ -107,7 +107,7 @@ namespace net.vieapps.Services.IPLocations
 			var uri = new Uri(Utility.Providers["keycdn"].GetUrl(ipAddress));
 			var json = JObject.Parse(await uri.FetchHttpAsync(cancellationToken).ConfigureAwait(false));
 			if ("success" != json.Get<string>("status"))
-				throw new RemoteServerException(HttpStatusCode.InternalServerError, false, uri, null, null, json.Get<string>("description"));
+				throw new RemoteServerException(HttpStatusCode.InternalServerError, false, "GET", uri, null, null, json.Get<string>("description"));
 			json = json["data"]["geo"] as JObject;
 			return new IPLocation
 			{
