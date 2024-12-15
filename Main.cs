@@ -65,20 +65,14 @@ namespace net.vieapps.Services.IPLocations
 					case "public-ips":
 						var publicAddresses = new JArray();
 						Utility.PublicAddresses.ForEach(addr => publicAddresses.Add(new JValue($"{addr}")));
-						json = new JObject
-							{
-								{ "IPs", publicAddresses }
-							};
+						json = new JObject { ["IPs"] = publicAddresses };
 						break;
 
 					case "local":
 					case "local-ips":
 						var localAddresses = new JArray();
 						Utility.LocalAddresses.ForEach(addr => localAddresses.Add(new JValue($"{addr}")));
-						json = new JObject
-							{
-								{ "IPs", localAddresses }
-							};
+						json = new JObject { ["IPs"] = localAddresses };
 						break;
 
 					case "current":
