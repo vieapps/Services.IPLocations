@@ -296,7 +296,7 @@ namespace net.vieapps.Services.IPLocations
 				}
 				catch (Exception ex)
 				{
-					logger?.LogError($"Error occurred while getting IP address by DynDNS => {ex.Message}", ex);
+					logger?.LogError($"Error occurred while getting IP address by DynDNS [http://checkip.dyndns.org/] => {ex.Message}", ex);
 				}
 			}
 
@@ -310,7 +310,7 @@ namespace net.vieapps.Services.IPLocations
 				}
 				catch (Exception ex)
 				{
-					logger?.LogError($"Error occurred while getting IP address by IPify => {ex.Message}", ex);
+					logger?.LogError($"Error occurred while getting IP address by IPify [http://api.ipify.org/] => {ex.Message}", ex);
 				}
 			}
 
