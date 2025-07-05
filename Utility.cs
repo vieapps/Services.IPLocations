@@ -3,11 +3,12 @@ using System;
 using System.Linq;
 using System.Xml;
 using System.Net;
-using System.Text.RegularExpressions;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Configuration;
+using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
@@ -21,22 +22,33 @@ namespace net.vieapps.Services.IPLocations
 	{
 		public static Components.Caching.Cache Cache { get; internal set; }
 
-		internal static Dictionary<string, Provider> Providers { get; private set; } = null;
+		internal static Dictionary<string, Provider> Providers { get; private set; }
 
-		internal static Provider FirstProvider { get; private set; } = null;
+		internal static Provider FirstProvider { get; private set; }
 
-		internal static Provider SecondProvider { get; private set; } = null;
+		internal static Provider SecondProvider { get; private set; }
 
 		internal static Regex PublicAddressRegex { get; } = new Regex(@"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}");
 
-		internal static Regex SameLocationRegex { get; private set; } = null;
+		internal static Regex SameLocationRegex { get; private set; }
+
+		internal static List<string> SameLocationAddress { get; private set; }
+
+		public static string ExternalURI { get; internal set; }
+
+		public static IPLocation CurrentLocation { get; internal set; }
+
+		public static CancellationToken CancellationToken { get; internal set; }
+
+		internal static ConcurrentDictionary<string, IPLocation> IPLocations { get; } = [];
 
 		internal static void PrepareProviders()
 		{
 			var providers = new Dictionary<string, Provider>(StringComparer.OrdinalIgnoreCase);
 			var firstProviderName = "ipstack";
 			var secondProviderName = "ipapi";
-			var sameLocationRegex = @"\d{1,3}\.\d{1,3}\.\d{1,3}";
+			var sameLocationRegex = @"\d{1,3}\.\d{1,3}";
+			var sameLocationAddress = "";
 
 			if (ConfigurationManager.GetSection("net.vieapps.services.iplocations.providers") is AppConfigurationSectionHandler svcConfig)
 			{
@@ -47,26 +59,28 @@ namespace net.vieapps.Services.IPLocations
 						.ToDictionary(provider => provider.Name, provider => provider, StringComparer.OrdinalIgnoreCase);
 				firstProviderName = svcConfig.Section.Attributes["first"]?.Value ?? "ipstack";
 				secondProviderName = svcConfig.Section.Attributes["second"]?.Value ?? "ipapi";
-				sameLocationRegex = svcConfig.Section.Attributes["sameLocationRegex"]?.Value ?? @"\d{1,3}\.\d{1,3}\.\d{1,3}";
+				sameLocationRegex = svcConfig.Section.Attributes["sameLocationRegex"]?.Value ?? @"\d{1,3}\.\d{1,3}";
+				sameLocationAddress = svcConfig.Section.Attributes["sameLocationAddress"]?.Value ?? "";
 			}
 
 			Utility.Providers = providers;
 			Utility.FirstProvider = providers.TryGetValue(firstProviderName, out Provider defaultProvider) ? defaultProvider : providers.FirstOrDefault().Value;
 			Utility.SecondProvider = providers.TryGetValue(secondProviderName, out defaultProvider) ? defaultProvider : providers.LastOrDefault().Value;
 			Utility.SameLocationRegex = new Regex(sameLocationRegex);
+			Utility.SameLocationAddress = sameLocationAddress.ToList("|");
 		}
 
-		internal static List<IPAddress> PublicAddresses { get; } = new List<IPAddress>();
+		internal static List<IPAddress> PublicAddresses { get; } = [];
 
-		internal static List<IPAddress> LocalAddresses { get; } = new List<IPAddress>();
+		internal static List<IPAddress> LocalAddresses { get; } = [];
 
-		internal static async Task<IPAddress> GetByDynDnsAsync(CancellationToken cancellationToken = default)
+		internal static async Task<IPAddress> GetByDynDnsAsync(CancellationToken cancellationToken)
 			=> IPAddress.Parse(Utility.PublicAddressRegex.Matches(await new Uri("http://checkip.dyndns.org/").FetchHttpAsync(cancellationToken).ConfigureAwait(false))[0].ToString());
 
-		internal static async Task<IPAddress> GetByIpifyAsync(CancellationToken cancellationToken = default)
+		internal static async Task<IPAddress> GetByIpifyAsync(CancellationToken cancellationToken)
 			=> IPAddress.Parse(Utility.PublicAddressRegex.Matches(await new Uri("http://api.ipify.org/").FetchHttpAsync(cancellationToken).ConfigureAwait(false))[0].ToString());
 
-		internal static async Task<IPLocation> GetByIpStackAsync(string ipAddress, CancellationToken cancellationToken = default)
+		internal static async Task<IPLocation> GetByIpStackAsync(string ipAddress, CancellationToken cancellationToken)
 		{
 			var uri = new Uri(Utility.Providers["ipstack"].GetUrl(ipAddress));
 			var json = JObject.Parse(await uri.FetchHttpAsync(cancellationToken).ConfigureAwait(false));
@@ -85,7 +99,7 @@ namespace net.vieapps.Services.IPLocations
 				};
 		}
 
-		internal static async Task<IPLocation> GetByIpApiAsync(string ipAddress, CancellationToken cancellationToken = default)
+		internal static async Task<IPLocation> GetByIpApiAsync(string ipAddress, CancellationToken cancellationToken)
 		{
 			var json = JObject.Parse(await UtilityService.FetchHttpAsync(Utility.Providers["ipapi"].GetUrl(ipAddress), cancellationToken).ConfigureAwait(false));
 			var continent = json.Get<string>("timezone");
@@ -102,7 +116,7 @@ namespace net.vieapps.Services.IPLocations
 			};
 		}
 
-		internal static async Task<IPLocation> GetByKeyCdnAsync(string ipAddress, CancellationToken cancellationToken = default)
+		internal static async Task<IPLocation> GetByKeyCdnAsync(string ipAddress, CancellationToken cancellationToken)
 		{
 			var uri = new Uri(Utility.Providers["keycdn"].GetUrl(ipAddress));
 			var json = JObject.Parse(await uri.FetchHttpAsync(cancellationToken).ConfigureAwait(false));
@@ -122,196 +136,221 @@ namespace net.vieapps.Services.IPLocations
 			};
 		}
 
-		internal static Task<IPLocation> GetAsync(string providerName, string ipAddress, CancellationToken cancellationToken = default)
+		internal static async Task<IPLocation> GetAsync(CancellationToken cancellationToken, string ipAddress = null)
 		{
-			switch ((providerName ?? "ipstack").ToLower())
+			var data = await new Uri($"{Utility.ExternalURI}/iplocations{(ipAddress != null ? $"?ip={ipAddress}" : "")}").FetchHttpAsync(cancellationToken).ConfigureAwait(false);
+			return new IPLocation().Fill(data.ToJson(), ipLocation => ipLocation.LastUpdated = DateTime.Now);
+		}
+
+		internal static async Task<IPLocation> GetAsync(string providerName, string ipAddress, CancellationToken cancellationToken)
+		{
+			if (Utility.IPLocations.TryGetValue(ipAddress, out var ipLocation))
+				return ipLocation;
+
+			try
 			{
-				case "ipstack":
-					return Utility.GetByIpStackAsync(ipAddress, cancellationToken);
+				switch ((providerName ?? "ipstack").ToLower())
+				{
+					case "ipstack":
+						ipLocation = await Utility.GetByIpStackAsync(ipAddress, cancellationToken).ConfigureAwait(false);
+						break;
 
-				case "keycdn":
-					return Utility.GetByKeyCdnAsync(ipAddress, cancellationToken);
+					case "keycdn":
+						ipLocation = await Utility.GetByKeyCdnAsync(ipAddress, cancellationToken).ConfigureAwait(false);
+						break;
 
-				case "ipapi":
-				default:
-					return Utility.GetByIpApiAsync(ipAddress, cancellationToken);
+					case "ipapi":
+					default:
+						ipLocation = await Utility.GetByIpApiAsync(ipAddress, cancellationToken).ConfigureAwait(false);
+						break;
+				}
+				return Utility.IPLocations[ipLocation.IP] = ipLocation;
+			}
+			catch
+			{
+				if (!string.IsNullOrWhiteSpace(Utility.ExternalURI))
+					try
+					{
+						ipLocation = await Utility.GetAsync(cancellationToken, ipAddress).ConfigureAwait(false);
+						return Utility.IPLocations[ipLocation.IP] = ipLocation;
+					}
+					catch { }
+				throw;
 			}
 		}
 
-		internal static async Task<IPLocation> GetLocationAsync(string ipAddress, CancellationToken cancellationToken = default, ILogger logger = null, string userID = null)
+		internal static async Task<IPLocation> SaveAsync(this IPLocation ipLocation, bool doUpdate = false, ILogger logger = null, string userID = null)
 		{
-			IPLocation location;
+			ipLocation.LastUpdated = DateTime.Now;
 			try
 			{
-				location = await IPLocation.GetAsync<IPLocation>(ipAddress.GenerateUUID(), cancellationToken).ConfigureAwait(false);
+				await (doUpdate ? IPLocation.UpdateAsync(ipLocation, userID, Utility.CancellationToken) : IPLocation.CreateAsync(ipLocation, Utility.CancellationToken)).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
-				logger?.LogError($"Error occurred while fetching IP address from database [\"{ipAddress}\"] => {ex.Message}", ex);
-				location = await Utility.Cache.FetchAsync<IPLocation>(ipAddress.GenerateUUID(), cancellationToken).ConfigureAwait(false);
-			}
-
-			var callUpdateMethod = location != null;
-
-			if (location == null || (DateTime.Now - location.LastUpdated).Days > 30)
+				logger?.LogError($"Error occurred while updating database => {ex.Message}", ex);
+				await Utility.Cache.SetAsync(ipLocation, Utility.CancellationToken).ConfigureAwait(false);
 				try
 				{
-					location = await Utility.GetAsync(Utility.FirstProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
-					if (string.IsNullOrWhiteSpace(location.City))
-						location = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
-					location.LastUpdated = DateTime.Now;
+					await IPLocation.UpdateAsync(ipLocation, userID, Utility.CancellationToken).ConfigureAwait(false);
+				}
+				catch { }
+			}
+			return ipLocation;
+		}
 
-					try
-					{
-						await (callUpdateMethod ? IPLocation.UpdateAsync(location, userID, cancellationToken) : IPLocation.CreateAsync(location, cancellationToken)).ConfigureAwait(false);
-					}
-					catch (Exception ex)
-					{
-						logger?.LogError($"Error occurred while processing with database while working with \"{Utility.FirstProvider?.Name}\" provider => {ex.Message}", ex);
-						if (location != null)
-							await Utility.Cache.SetAsync(location, cancellationToken).ConfigureAwait(false);
-						try
-						{
-							await IPLocation.UpdateAsync(location, userID, cancellationToken).ConfigureAwait(false);
-						}
-						catch { }
-					}
+		internal static async Task<IPLocation> GetLocationAsync(string ipAddress, ILogger logger, string userID, CancellationToken cancellationToken)
+		{
+			var doUpdate = false;
+			if (!Utility.IPLocations.TryGetValue(ipAddress, out var ipLocation))
+				try
+				{
+					ipLocation = await IPLocation.GetAsync<IPLocation>(ipAddress.GenerateUUID(), cancellationToken).ConfigureAwait(false);
+					doUpdate = ipLocation != null;
+					if (doUpdate)
+						Utility.IPLocations[ipLocation.IP] = ipLocation;
+				}
+				catch (Exception ex)
+				{
+					logger.LogError($"Error occurred while fetching IP address from database [\"{ipAddress}\"] => {ex.Message}", ex);
+					ipLocation = await Utility.Cache.FetchAsync<IPLocation>(ipAddress.GenerateUUID(), cancellationToken).ConfigureAwait(false);
+				}
+
+			if (ipLocation == null || string.IsNullOrWhiteSpace(ipLocation.City) || "N/A".IsEquals(ipLocation.City) || (DateTime.Now - ipLocation.LastUpdated).Days > 30)
+				try
+				{
+					ipLocation = await Utility.GetAsync(Utility.FirstProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
+					if (string.IsNullOrWhiteSpace(ipLocation.City))
+						ipLocation = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
+					ipLocation.SaveAsync(doUpdate, logger, userID).Run();
 				}
 				catch (Exception fe)
 				{
 					logger?.LogError($"Error occurred while processing with \"{Utility.FirstProvider?.Name}\" provider => {fe.Message}", fe);
 					try
 					{
-						location = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
-						location.LastUpdated = DateTime.Now;
-						try
-						{
-							await (callUpdateMethod ? IPLocation.UpdateAsync(location, userID, cancellationToken) : IPLocation.CreateAsync(location, cancellationToken)).ConfigureAwait(false);
-						}
-						catch (Exception ex)
-						{
-							logger?.LogError($"Error occurred while processing with database while working with \"{Utility.SecondProvider?.Name}\" provider => {ex.Message}", ex);
-							if (location != null)
-								await Utility.Cache.SetAsync(location, cancellationToken).ConfigureAwait(false);
-							try
-							{
-								await IPLocation.UpdateAsync(location, userID, cancellationToken).ConfigureAwait(false);
-							}
-							catch { }
-						}
+						ipLocation = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
+						ipLocation.SaveAsync(doUpdate, logger, userID).Run();
 					}
 					catch (Exception se)
 					{
-						logger?.LogError($"Error occurred while processing with \"{Utility.SecondProvider?.Name}\" provider: {se.Message}", se);
-						location = location ?? new IPLocation
-						{
-							ID = ipAddress.GenerateUUID(),
-							IP = ipAddress,
-							City = "N/A",
-							Region = "N/A",
-							Country = "N/A",
-							Continent = "N/A",
-							Latitude = "N/A",
-							Longitude = "N/A",
-						};
+						logger.LogError($"Error occurred while processing with \"{Utility.SecondProvider?.Name}\" provider: {se.Message}", se);
 					}
 				}
 
-			return location;
+			return ipLocation ?? new IPLocation
+			{
+				ID = ipAddress.GenerateUUID(),
+				IP = ipAddress,
+				City = "N/A",
+				Region = "N/A",
+				Country = "N/A",
+				Continent = "N/A",
+				Latitude = "N/A",
+				Longitude = "N/A",
+			};
 		}
 
-		internal static Task<IPLocation> GetCurrentLocationAsync(CancellationToken cancellationToken = default, ILogger logger = null, string userID = null)
+		internal static Task<IPLocation> GetCurrentLocationAsync(ILogger logger, CancellationToken cancellationToken, string userID = null)
 		{
-			IPAddress ipAddress = null;
-			foreach (var address in Utility.PublicAddresses)
-				if ($"{address}".IndexOf(".") > 0 || $"{address}".IndexOf(":") > 0)
-				{
-					ipAddress = address;
-					break;
-				}
-			return Utility.GetLocationAsync($"{ipAddress ?? Utility.PublicAddresses[0]}", cancellationToken, logger, userID);
+			var ipAddress = Utility.PublicAddresses.FirstOrDefault(address => $"{address}".IndexOf('.') > 0 || $"{address}".IndexOf(':') > 0);
+			return ipAddress != null ? Utility.GetLocationAsync($"{ipAddress}", logger, userID, cancellationToken) : Task.FromResult<IPLocation>(null);
 		}
 
-		internal static bool IsSameLocation(string ip)
+		internal static bool IsSameLocation(this string ip)
 		{
 			if (IPAddress.IsLoopback(IPAddress.Parse(ip)))
 				return true;
 
-			var ipMatched = Utility.SameLocationRegex.Match(ip);
-			var ipAddress = ipMatched.Success
+			var ipMatched = Utility.SameLocationRegex == null ? null : Utility.SameLocationRegex.Match(ip);
+			var ipAddress = ipMatched != null && ipMatched.Success
 				? ipMatched.Groups[0].Value
 				: null;
 
-			if (string.IsNullOrWhiteSpace(ipAddress))
-				return false;
+			if (!string.IsNullOrWhiteSpace(ipAddress))
+				foreach (var localAddress in Utility.LocalAddresses)
+				{
+					var localMatched = Utility.SameLocationRegex == null ? null : Utility.SameLocationRegex.Match($"{localAddress}");
+					if (ipAddress.IsEquals(localMatched != null && localMatched.Success ? localMatched.Groups[0].Value : null))
+						return true;
+				}
 
-			foreach (var localAddress in Utility.LocalAddresses)
-			{
-				var localMatched = Utility.SameLocationRegex.Match($"{localAddress}");
-				if (ipAddress.IsEquals(localMatched.Success ? localMatched.Groups[0].Value : null))
-					return true;
-			}
-
-			return false;
+			return (Utility.SameLocationAddress ?? []).FirstOrDefault(address => ip.StartsWith(address)) != null;
 		}
 
-		internal static IPAddress Find(this List<IPAddress> addresses, IPAddress address)
-			=> addresses.FirstOrDefault(adr => $"{address}".Equals($"{adr}"));
+		internal static IPAddress Find(this List<IPAddress> ipAddresses, IPAddress ipAddress)
+			=> ipAddresses.FirstOrDefault(address => $"{ipAddress}".Equals($"{address}"));
 
 		internal static string GetUrl(this Provider provider, string ipAddress)
 			=> provider.UriPattern.Replace(StringComparison.OrdinalIgnoreCase, "{ip}", ipAddress).Replace(StringComparison.OrdinalIgnoreCase, "{accessKey}", provider.AccessKey);
 
-		internal static async Task PrepareAddressesAsync(CancellationToken cancellationToken = default, ILogger logger = null)
+		internal static async Task PrepareAddressesAsync(CancellationToken cancellationToken, ILogger logger, bool prepareProviders = true, bool prepareLocalAddresses = true)
 		{
-			try
-			{
-				Utility.PrepareProviders();
-			}
-			catch (Exception ex)
-			{
-				logger?.LogError($"Error occurred while preparing providers => {ex.Message}", ex);
-			}
-
-			try
-			{
-				var ipAddresses = await Dns.GetHostAddressesAsync(Dns.GetHostName(), cancellationToken).ConfigureAwait(false);
-				ipAddresses.ForEach(ipAddress =>
-				{
-					if (Utility.LocalAddresses.Find(ipAddress) == null)
-						Utility.LocalAddresses.Add(ipAddress);
-				});
-			}
-			catch (Exception ex)
-			{
-				logger?.LogError($"Error occurred while preparing local IP addresses => {ex.Message}", ex);
-			}
-
-			async Task getByDynDnsAsync()
-			{
+			if (prepareProviders)
 				try
 				{
-					var ipAddress = await Utility.GetByDynDnsAsync(cancellationToken).ConfigureAwait(false);
-					if (Utility.PublicAddresses.Find(ipAddress) == null)
-						Utility.PublicAddresses.Add(ipAddress);
+					Utility.PrepareProviders();
 				}
 				catch (Exception ex)
 				{
-					logger?.LogError($"Error occurred while getting IP address by DynDNS [http://checkip.dyndns.org/] => {ex.Message}", ex);
+					logger.LogError($"Error occurred while preparing providers => {ex.Message}", ex);
 				}
+
+			if (prepareLocalAddresses)
+				try
+				{
+					var ipAddresses = await Dns.GetHostAddressesAsync(Dns.GetHostName(), cancellationToken).ConfigureAwait(false);
+					ipAddresses.ForEach(ipAddress =>
+					{
+						if (Utility.LocalAddresses.Find(ipAddress) == null)
+							Utility.LocalAddresses.Add(ipAddress);
+					});
+				}
+				catch (Exception ex)
+				{
+					logger.LogError($"Error occurred while preparing local IP addresses => {ex.Message}", ex);
+				}
+
+			async Task getByDynDnsAsync()
+			{
+				IPAddress ipAddress = null;
+				try
+				{
+					ipAddress = await Utility.GetByDynDnsAsync(cancellationToken).ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					logger.LogError($"Error occurred while getting public IP address by DynDNS => {ex.Message}", ex);
+					if (!string.IsNullOrWhiteSpace(Utility.ExternalURI))
+						try
+						{
+							ipAddress = (await Utility.GetAsync(cancellationToken).ConfigureAwait(false))?.IPAddress;
+						}
+						catch { }
+				}
+				if (ipAddress != null && Utility.PublicAddresses.Find(ipAddress) == null)
+					Utility.PublicAddresses.Add(ipAddress);
 			}
 
 			async Task getByIpifyAsync()
 			{
+				IPAddress ipAddress = null;
 				try
 				{
-					var ipAddress = await Utility.GetByIpifyAsync(cancellationToken).ConfigureAwait(false);
-					if (Utility.PublicAddresses.Find(ipAddress) == null)
-						Utility.PublicAddresses.Add(ipAddress);
+					ipAddress = await Utility.GetByIpifyAsync(cancellationToken).ConfigureAwait(false);
 				}
 				catch (Exception ex)
 				{
-					logger?.LogError($"Error occurred while getting IP address by IPify [http://api.ipify.org/] => {ex.Message}", ex);
+					logger.LogError($"Error occurred while getting public IP address by IPify => {ex.Message}", ex);
+					if (!string.IsNullOrWhiteSpace(Utility.ExternalURI))
+						try
+						{
+							ipAddress = (await Utility.GetAsync(cancellationToken).ConfigureAwait(false))?.IPAddress;
+						}
+						catch { }
 				}
+				if (ipAddress != null && Utility.PublicAddresses.Find(ipAddress) == null)
+					Utility.PublicAddresses.Add(ipAddress);
 			}
 
 			await Task.WhenAny(getByDynDnsAsync(), getByIpifyAsync()).ConfigureAwait(false);

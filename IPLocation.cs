@@ -1,10 +1,11 @@
 ﻿using System;
+using System.Net;
 using System.Diagnostics;
 using System.Xml.Serialization;
-using Newtonsoft.Json;
 using MongoDB.Bson.Serialization.Attributes;
-using net.vieapps.Components.Security;
+using Newtonsoft.Json;
 using net.vieapps.Components.Repository;
+using net.vieapps.Components.Security;
 
 namespace net.vieapps.Services.IPLocations
 {
@@ -76,5 +77,8 @@ namespace net.vieapps.Services.IPLocations
 
 		[Ignore, JsonIgnore, XmlIgnore, BsonIgnore]
 		public override Privileges OriginalPrivileges { get; set; }
+
+		[Ignore, JsonIgnore, XmlIgnore, BsonIgnore]
+		public IPAddress IPAddress => IPAddress.Parse(this.IP);
 	}
 }
