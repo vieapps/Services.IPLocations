@@ -66,8 +66,8 @@ namespace net.vieapps.Services.IPLocations
 			this.Logger.LogInformation($"Providers: {string.Join(", ", Utility.Providers.Keys)}");
 			this.Logger.LogInformation($"First provider: {Utility.FirstProvider?.Name ?? "N/A"}");
 			this.Logger.LogInformation($"Second provider: {Utility.SecondProvider?.Name ?? "N/A"}");
-			this.Logger.LogInformation($"Expression of Same Location (Regex): {Utility.SameLocationRegex}");
-			this.Logger.LogInformation($"Expression of Same Location (Address): {Utility.SameLocationAddress.Join(", ")}");
+			this.Logger.LogInformation($"Same Location (Regex): {Utility.SameLocationRegex}");
+			this.Logger.LogInformation($"Same Location (Address): {Utility.SameLocationAddress.Join(" - ")}");
 			this.Logger.LogInformation($"Public Address: {string.Join(" - ", Utility.PublicAddresses)}");
 			this.Logger.LogInformation($"Local Address: {string.Join(" - ", Utility.LocalAddresses)}");
 

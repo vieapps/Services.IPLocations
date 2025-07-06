@@ -160,8 +160,10 @@ namespace net.vieapps.Services.IPLocations
 			}
 			catch (Exception ex)
 			{
-				logger?.LogError($"Error occurred while updating database => {ex.Message}", ex);
-				await Utility.Cache.SetAsync(ipLocation, Utility.CancellationToken).ConfigureAwait(false);
+				if (ex is InformationExistedException || ex.InnerException is InformationExistedException)
+					await Utility.Cache.SetAsync(ipLocation, Utility.CancellationToken).ConfigureAwait(false);
+				else
+					logger?.LogError($"Error occurred while updating database => {ex.Message}", ex);
 				try
 				{
 					await IPLocation.UpdateAsync(ipLocation, userID, Utility.CancellationToken).ConfigureAwait(false);
