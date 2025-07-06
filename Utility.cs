@@ -1,11 +1,9 @@
 ﻿#region Related components
 using System;
 using System.Linq;
-using System.Xml;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Configuration;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
@@ -22,53 +20,27 @@ namespace net.vieapps.Services.IPLocations
 	{
 		public static Components.Caching.Cache Cache { get; internal set; }
 
-		internal static Dictionary<string, Provider> Providers { get; private set; }
+		internal static Dictionary<string, Provider> Providers { get; set; }
 
-		internal static Provider FirstProvider { get; private set; }
+		internal static Provider FirstProvider { get; set; }
 
-		internal static Provider SecondProvider { get; private set; }
+		internal static Provider SecondProvider { get; set; }
 
 		internal static Regex PublicAddressRegex { get; } = new Regex(@"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}");
 
-		internal static Regex SameLocationRegex { get; private set; }
+		internal static Regex SameLocationRegex { get; set; } = new Regex(@"\d{1,3}\.\d{1,3}");
 
-		internal static List<string> SameLocationAddress { get; private set; }
+		internal static List<string> SameLocationAddress { get; set; }
 
-		public static string ExternalURI { get; internal set; }
+		internal static string ExternalURI { get; set; }
 
-		public static IPLocation CurrentLocation { get; internal set; }
+		internal static string DefaultLocation { get; set; } = "Hanoi, Vietnam";
 
-		public static CancellationToken CancellationToken { get; internal set; }
+		internal static IPLocation CurrentLocation { get; set; }
+
+		internal static CancellationToken CancellationToken { get; set; }
 
 		internal static ConcurrentDictionary<string, IPLocation> IPLocations { get; } = [];
-
-		internal static void PrepareProviders()
-		{
-			var providers = new Dictionary<string, Provider>(StringComparer.OrdinalIgnoreCase);
-			var firstProviderName = "ipstack";
-			var secondProviderName = "ipapi";
-			var sameLocationRegex = @"\d{1,3}\.\d{1,3}";
-			var sameLocationAddress = "";
-
-			if (ConfigurationManager.GetSection("net.vieapps.services.iplocations.providers") is AppConfigurationSectionHandler svcConfig)
-			{
-				if (svcConfig.Section.SelectNodes("provider") is XmlNodeList svcProviders)
-					providers = svcProviders.ToList()
-						.Select(svcProvider => new Provider(svcProvider.Attributes["name"]?.Value, svcProvider.Attributes["uriPattern"]?.Value, svcProvider.Attributes["accessKey"]?.Value ?? ""))
-						.Where(provider => !string.IsNullOrWhiteSpace(provider.Name) && !string.IsNullOrWhiteSpace(provider.UriPattern))
-						.ToDictionary(provider => provider.Name, provider => provider, StringComparer.OrdinalIgnoreCase);
-				firstProviderName = svcConfig.Section.Attributes["first"]?.Value ?? "ipstack";
-				secondProviderName = svcConfig.Section.Attributes["second"]?.Value ?? "ipapi";
-				sameLocationRegex = svcConfig.Section.Attributes["sameLocationRegex"]?.Value ?? @"\d{1,3}\.\d{1,3}";
-				sameLocationAddress = svcConfig.Section.Attributes["sameLocationAddress"]?.Value ?? "";
-			}
-
-			Utility.Providers = providers;
-			Utility.FirstProvider = providers.TryGetValue(firstProviderName, out Provider defaultProvider) ? defaultProvider : providers.FirstOrDefault().Value;
-			Utility.SecondProvider = providers.TryGetValue(secondProviderName, out defaultProvider) ? defaultProvider : providers.LastOrDefault().Value;
-			Utility.SameLocationRegex = new Regex(sameLocationRegex);
-			Utility.SameLocationAddress = sameLocationAddress.ToList("|");
-		}
 
 		internal static List<IPAddress> PublicAddresses { get; } = [];
 
@@ -284,18 +256,8 @@ namespace net.vieapps.Services.IPLocations
 		internal static string GetUrl(this Provider provider, string ipAddress)
 			=> provider.UriPattern.Replace(StringComparison.OrdinalIgnoreCase, "{ip}", ipAddress).Replace(StringComparison.OrdinalIgnoreCase, "{accessKey}", provider.AccessKey);
 
-		internal static async Task PrepareAddressesAsync(CancellationToken cancellationToken, ILogger logger, bool prepareProviders = true, bool prepareLocalAddresses = true)
+		internal static async Task PrepareAddressesAsync(CancellationToken cancellationToken, ILogger logger, bool prepareLocalAddresses = true)
 		{
-			if (prepareProviders)
-				try
-				{
-					Utility.PrepareProviders();
-				}
-				catch (Exception ex)
-				{
-					logger.LogError($"Error occurred while preparing providers => {ex.Message}", ex);
-				}
-
 			if (prepareLocalAddresses)
 				try
 				{
