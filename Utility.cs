@@ -173,10 +173,13 @@ namespace net.vieapps.Services.IPLocations
 			return ipLocation;
 		}
 
-		internal static async Task<IPLocation> GetLocationAsync(string ipAddress, ILogger logger, string userID, CancellationToken cancellationToken)
+		internal static async Task<IPLocation> GetLocationAsync(string ipAddress, ILogger logger, string userID, CancellationToken cancellationToken, string serviceName = null, string excludedNodeID = null)
 		{
 			var doUpdate = false;
+			var doBroadcast = false;
+
 			if (!Utility.IPLocations.TryGetValue(ipAddress, out var ipLocation))
+			{
 				try
 				{
 					ipLocation = await IPLocation.GetAsync<IPLocation>(ipAddress.GenerateUUID(), cancellationToken).ConfigureAwait(false);
@@ -189,8 +192,11 @@ namespace net.vieapps.Services.IPLocations
 					logger.LogError($"Error occurred while fetching IP address from database [\"{ipAddress}\"] => {ex.Message}", ex);
 					ipLocation = await Utility.Cache.FetchAsync<IPLocation>(ipAddress.GenerateUUID(), cancellationToken).ConfigureAwait(false);
 				}
+				doBroadcast = ipLocation != null;
+			}
 
 			if (ipLocation == null || string.IsNullOrWhiteSpace(ipLocation.City) || "N/A".IsEquals(ipLocation.City) || (DateTime.Now - ipLocation.LastUpdated).Days > 30)
+			{
 				try
 				{
 					ipLocation = await Utility.GetAsync(Utility.FirstProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
@@ -211,6 +217,16 @@ namespace net.vieapps.Services.IPLocations
 						logger.LogError($"Error occurred while processing with \"{Utility.SecondProvider?.Name}\" provider: {se.Message}", se);
 					}
 				}
+				doBroadcast = ipLocation != null;
+			}
+
+			if (doBroadcast && serviceName != null && excludedNodeID != null)
+				new CommunicateMessage(serviceName)
+				{
+					Type = "IPLocations#Update",
+					ExcludedNodeID = excludedNodeID,
+					Data = ipLocation.ToJson()
+				}.Send();
 
 			return ipLocation ?? new IPLocation
 			{
@@ -236,7 +252,7 @@ namespace net.vieapps.Services.IPLocations
 			if (IPAddress.IsLoopback(IPAddress.Parse(ip)))
 				return true;
 
-			var ipMatched = Utility.SameLocationRegex == null ? null : Utility.SameLocationRegex.Match(ip);
+			var ipMatched = Utility.SameLocationRegex?.Match(ip);
 			var ipAddress = ipMatched != null && ipMatched.Success
 				? ipMatched.Groups[0].Value
 				: null;
@@ -244,7 +260,7 @@ namespace net.vieapps.Services.IPLocations
 			if (!string.IsNullOrWhiteSpace(ipAddress))
 				foreach (var localAddress in Utility.LocalAddresses)
 				{
-					var localMatched = Utility.SameLocationRegex == null ? null : Utility.SameLocationRegex.Match($"{localAddress}");
+					var localMatched = Utility.SameLocationRegex?.Match($"{localAddress}");
 					if (ipAddress.IsEquals(localMatched != null && localMatched.Success ? localMatched.Groups[0].Value : null))
 						return true;
 				}

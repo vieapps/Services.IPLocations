@@ -134,7 +134,7 @@ namespace net.vieapps.Services.IPLocations
 											ipLocation.ID = ipAddress.GenerateUUID();
 											ipLocation.IP = ipAddress;
 										})
-									: await Utility.GetLocationAsync(ipAddress, this.Logger, requestInfo.Session.User.ID, cts.Token).ConfigureAwait(false) ?? new()
+									: await Utility.GetLocationAsync(ipAddress, this.Logger, requestInfo.Session.User.ID, cts.Token, this.ServiceName, this.NodeID).ConfigureAwait(false) ?? new()
 							).ToJson(ip => ip.Remove("LastUpdated"));
 						break;
 				}
@@ -151,5 +151,13 @@ namespace net.vieapps.Services.IPLocations
 				throw this.GetRuntimeException(requestInfo, ex, stopwatch);
 			}
 		}
+
+		protected override Task ProcessInterCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
+		{
+			if (message.Type.IsEquals("IPLocations#Update"))
+				new IPLocation().Fill(message.Data, ipLocation => Utility.IPLocations[ipLocation.IP] = ipLocation);
+			return Task.CompletedTask;
+		}
+
 	}
 }
