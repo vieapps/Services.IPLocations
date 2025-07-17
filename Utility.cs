@@ -161,14 +161,16 @@ namespace net.vieapps.Services.IPLocations
 			catch (Exception ex)
 			{
 				if (ex is InformationExistedException || ex.InnerException is InformationExistedException)
-					await Utility.Cache.SetAsync(ipLocation, Utility.CancellationToken).ConfigureAwait(false);
+					try
+					{
+						await IPLocation.UpdateAsync(ipLocation, userID, Utility.CancellationToken).ConfigureAwait(false);
+					}
+					catch
+					{
+						await Utility.Cache.SetAsync(ipLocation, Utility.CancellationToken).ConfigureAwait(false);
+					}
 				else
 					logger?.LogError($"Error occurred while updating database => {ex.Message}", ex);
-				try
-				{
-					await IPLocation.UpdateAsync(ipLocation, userID, Utility.CancellationToken).ConfigureAwait(false);
-				}
-				catch { }
 			}
 			return ipLocation;
 		}
@@ -217,16 +219,15 @@ namespace net.vieapps.Services.IPLocations
 						logger.LogError($"Error occurred while processing with \"{Utility.SecondProvider?.Name}\" provider: {se.Message}", se);
 					}
 				}
-				doBroadcast = ipLocation != null;
+				if (ipLocation != null)
+				{
+					Utility.IPLocations[ipLocation.IP] = ipLocation;
+					doBroadcast = true;
+				}
 			}
 
 			if (doBroadcast && serviceName != null && excludedNodeID != null)
-				new CommunicateMessage(serviceName)
-				{
-					Type = "IPLocations#Update",
-					ExcludedNodeID = excludedNodeID,
-					Data = ipLocation.ToJson()
-				}.Send();
+				ipLocation.Send(serviceName, excludedNodeID);
 
 			return ipLocation ?? new IPLocation
 			{
@@ -246,6 +247,14 @@ namespace net.vieapps.Services.IPLocations
 			var ipAddress = Utility.PublicAddresses.FirstOrDefault(address => $"{address}".IndexOf('.') > 0 || $"{address}".IndexOf(':') > 0);
 			return ipAddress != null ? Utility.GetLocationAsync($"{ipAddress}", logger, userID, cancellationToken) : Task.FromResult<IPLocation>(null);
 		}
+
+		internal static void Send(this IPLocation ipLocation, string serviceName, string excludedNodeID)
+			=> new CommunicateMessage(serviceName)
+			{
+				Type = "Update",
+				ExcludedNodeID = excludedNodeID,
+				Data = ipLocation.ToJson()
+			}.Send();
 
 		internal static bool IsSameLocation(this string ip)
 		{

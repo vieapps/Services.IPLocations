@@ -82,6 +82,13 @@ namespace net.vieapps.Services.IPLocations
 				this.Logger.LogError($"Error occurred while fetching current location => {ex.Message}", ex);
 			}
 
+			// sync from others
+			new CommunicateMessage(this.ServiceName)
+			{
+				Type = "Sync",
+				ExcludedNodeID = this.NodeID
+			}.Send();
+
 			// next step
 			next?.Invoke(this);
 		}
@@ -154,8 +161,10 @@ namespace net.vieapps.Services.IPLocations
 
 		protected override Task ProcessInterCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
-			if (message.Type.IsEquals("IPLocations#Update"))
+			if (message.Type.IsEquals("Update"))
 				new IPLocation().Fill(message.Data, ipLocation => Utility.IPLocations[ipLocation.IP] = ipLocation);
+			else if (message.Type.IsEquals("Sync"))
+				Utility.IPLocations.Select(kvp => kvp.Value).ToList().ForEach(ipLocation => ipLocation.Send(this.ServiceName, this.NodeID));
 			return Task.CompletedTask;
 		}
 
