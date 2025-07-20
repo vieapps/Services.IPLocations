@@ -151,19 +151,19 @@ namespace net.vieapps.Services.IPLocations
 			}
 		}
 
-		internal static async Task<IPLocation> SaveAsync(this IPLocation ipLocation, bool doUpdate = false, ILogger logger = null, string userID = null)
+		internal static async Task<IPLocation> SaveAsync(this IPLocation ipLocation, bool doUpdate = false, ILogger logger = null)
 		{
 			ipLocation.LastUpdated = DateTime.Now;
 			try
 			{
-				await (doUpdate ? IPLocation.UpdateAsync(ipLocation, userID, Utility.CancellationToken) : IPLocation.CreateAsync(ipLocation, Utility.CancellationToken)).ConfigureAwait(false);
+				await (doUpdate ? IPLocation.UpdateAsync(ipLocation, true, Utility.CancellationToken) : IPLocation.CreateAsync(ipLocation, Utility.CancellationToken)).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
 				if (ex is InformationExistedException || ex.InnerException is InformationExistedException)
 					try
 					{
-						await IPLocation.UpdateAsync(ipLocation, userID, Utility.CancellationToken).ConfigureAwait(false);
+						await IPLocation.UpdateAsync(ipLocation, true, Utility.CancellationToken).ConfigureAwait(false);
 					}
 					catch
 					{
@@ -175,7 +175,7 @@ namespace net.vieapps.Services.IPLocations
 			return ipLocation;
 		}
 
-		internal static async Task<IPLocation> GetLocationAsync(string ipAddress, ILogger logger, string userID, CancellationToken cancellationToken, string serviceName = null, string excludedNodeID = null)
+		internal static async Task<IPLocation> GetLocationAsync(string ipAddress, ILogger logger, CancellationToken cancellationToken)
 		{
 			var doUpdate = false;
 			var doBroadcast = false;
@@ -186,15 +186,17 @@ namespace net.vieapps.Services.IPLocations
 				{
 					ipLocation = await IPLocation.GetAsync<IPLocation>(ipAddress.GenerateUUID(), cancellationToken).ConfigureAwait(false);
 					doUpdate = ipLocation != null;
-					if (doUpdate)
-						Utility.IPLocations[ipLocation.IP] = ipLocation;
 				}
 				catch (Exception ex)
 				{
 					logger.LogError($"Error occurred while fetching IP address from database [\"{ipAddress}\"] => {ex.Message}", ex);
 					ipLocation = await Utility.Cache.FetchAsync<IPLocation>(ipAddress.GenerateUUID(), cancellationToken).ConfigureAwait(false);
 				}
-				doBroadcast = ipLocation != null;
+				if (ipLocation != null)
+				{
+					Utility.IPLocations[ipLocation.IP] = ipLocation;
+					doBroadcast = true;
+				}
 			}
 
 			if (ipLocation == null || string.IsNullOrWhiteSpace(ipLocation.City) || "N/A".IsEquals(ipLocation.City) || (DateTime.Now - ipLocation.LastUpdated).Days > 30)
@@ -204,7 +206,7 @@ namespace net.vieapps.Services.IPLocations
 					ipLocation = await Utility.GetAsync(Utility.FirstProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
 					if (string.IsNullOrWhiteSpace(ipLocation.City))
 						ipLocation = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
-					ipLocation.SaveAsync(doUpdate, logger, userID).Run();
+					ipLocation.SaveAsync(doUpdate, logger).Run();
 				}
 				catch (Exception fe)
 				{
@@ -212,7 +214,7 @@ namespace net.vieapps.Services.IPLocations
 					try
 					{
 						ipLocation = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
-						ipLocation.SaveAsync(doUpdate, logger, userID).Run();
+						ipLocation.SaveAsync(doUpdate, logger).Run();
 					}
 					catch (Exception se)
 					{
@@ -226,8 +228,8 @@ namespace net.vieapps.Services.IPLocations
 				}
 			}
 
-			if (doBroadcast && serviceName != null && excludedNodeID != null)
-				ipLocation.Send(serviceName, excludedNodeID);
+			if (doBroadcast)
+				ipLocation.Send();
 
 			return ipLocation ?? new IPLocation
 			{
@@ -242,17 +244,17 @@ namespace net.vieapps.Services.IPLocations
 			};
 		}
 
-		internal static Task<IPLocation> GetCurrentLocationAsync(ILogger logger, CancellationToken cancellationToken, string userID = null)
+		internal static Task<IPLocation> GetCurrentLocationAsync(ILogger logger, CancellationToken cancellationToken)
 		{
 			var ipAddress = Utility.PublicAddresses.FirstOrDefault(address => $"{address}".IndexOf('.') > 0 || $"{address}".IndexOf(':') > 0);
-			return ipAddress != null ? Utility.GetLocationAsync($"{ipAddress}", logger, userID, cancellationToken) : Task.FromResult<IPLocation>(null);
+			return ipAddress != null ? Utility.GetLocationAsync($"{ipAddress}", logger, cancellationToken) : Task.FromResult<IPLocation>(null);
 		}
 
-		internal static void Send(this IPLocation ipLocation, string serviceName, string excludedNodeID)
-			=> new CommunicateMessage(serviceName)
+		internal static void Send(this IPLocation ipLocation)
+			=> new CommunicateMessage(ServiceComponent.ServiceComponent.ServiceName)
 			{
 				Type = "Update",
-				ExcludedNodeID = excludedNodeID,
+				ExcludedNodeID = ServiceComponent.ServiceComponent.NodeID,
 				Data = ipLocation.ToJson()
 			}.Send();
 
@@ -363,6 +365,6 @@ namespace net.vieapps.Services.IPLocations
 
 	//  --------------------------------------------------------------------------------------------
 
-	[Repository]
+	[Repository(ServiceName = "IPLocations")]
 	public abstract class Repository<T> : RepositoryBase<T> where T : class { }
 }

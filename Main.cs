@@ -71,9 +71,17 @@ namespace net.vieapps.Services.IPLocations
 			this.Logger.LogInformation($"Public Address: {string.Join(" - ", Utility.PublicAddresses)}");
 			this.Logger.LogInformation($"Local Address: {string.Join(" - ", Utility.LocalAddresses)}");
 
-			// current
+			// sync from others
+			new CommunicateMessage(this.ServiceName)
+			{
+				Type = "Sync",
+				ExcludedNodeID = this.NodeID
+			}.Send();
+
+			// current location
 			try
 			{
+				await Task.Delay(UtilityService.GetRandomNumber(123, 456), this.CancellationToken).ConfigureAwait(false);
 				Utility.CurrentLocation = await Utility.GetCurrentLocationAsync(this.Logger, this.CancellationToken).ConfigureAwait(false);
 				this.Logger.LogInformation($"Current Location: {(Utility.CurrentLocation != null ? $"{Utility.CurrentLocation.City}, {Utility.CurrentLocation?.Region}, {Utility.CurrentLocation.Country}" : Utility.DefaultLocation)}");
 			}
@@ -82,15 +90,20 @@ namespace net.vieapps.Services.IPLocations
 				this.Logger.LogError($"Error occurred while fetching current location => {ex.Message}", ex);
 			}
 
-			// sync from others
-			new CommunicateMessage(this.ServiceName)
-			{
-				Type = "Sync",
-				ExcludedNodeID = this.NodeID
-			}.Send();
-
 			// next step
 			next?.Invoke(this);
+		}
+
+		protected override Task ProcessInterCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
+		{
+			if (message.Type.IsEquals("Update"))
+				new IPLocation().Fill(message.Data, ipLocation => Utility.IPLocations[ipLocation.IP] = ipLocation);
+			else if (message.Type.IsEquals("Sync"))
+			{
+				Utility.IPLocations.Select(kvp => kvp.Value).ToList().ForEach(ipLocation => ipLocation.Send());
+				this.WriteLogsAsync(UtilityService.NewUUID, $"Sync {Utility.IPLocations.Count:###,###,##0} ip-locations to others successful").Run();
+			}
+			return Task.CompletedTask;
 		}
 
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
@@ -125,7 +138,7 @@ namespace net.vieapps.Services.IPLocations
 						if (Utility.PublicAddresses.Count < 1)
 							await Utility.PrepareAddressesAsync(this.CancellationToken, this.Logger, false).ConfigureAwait(false);
 						json = requestInfo.ObjectName.IsStartsWith("current")
-							? (Utility.CurrentLocation ?? (Utility.CurrentLocation = await Utility.GetCurrentLocationAsync(this.Logger, cts.Token, requestInfo.Session.User.ID).ConfigureAwait(false)) ?? new()).ToJson(ip => ip.Remove("LastUpdated"))
+							? (Utility.CurrentLocation ?? (Utility.CurrentLocation = await Utility.GetCurrentLocationAsync(this.Logger, cts.Token).ConfigureAwait(false)) ?? new()).ToJson(ip => ip.Remove("LastUpdated"))
 							: Utility.PublicAddresses.Select(address => new JValue($"{address}")).ToJArray();
 						break;
 
@@ -135,13 +148,13 @@ namespace net.vieapps.Services.IPLocations
 							? throw new InvalidRequestException($"The request is invalid ({requestInfo.Verb} {requestInfo.GetURI()})")
 							: (requestInfo.ContainsKey("x-use-external") && !string.IsNullOrWhiteSpace(Utility.ExternalURI)
 								? await Utility.GetAsync(cts.Token, ipAddress).ConfigureAwait(false) ?? new()
-								: ipAddress.IsSameLocation()
+								: ipAddress.IsSameLocation() && Utility.CurrentLocation != null
 									? new IPLocation().CopyFrom(Utility.CurrentLocation, null, ipLocation =>
 										{
 											ipLocation.ID = ipAddress.GenerateUUID();
 											ipLocation.IP = ipAddress;
 										})
-									: await Utility.GetLocationAsync(ipAddress, this.Logger, requestInfo.Session.User.ID, cts.Token, this.ServiceName, this.NodeID).ConfigureAwait(false) ?? new()
+									: await Utility.GetLocationAsync(ipAddress, this.Logger, cts.Token).ConfigureAwait(false) ?? new()
 							).ToJson(ip => ip.Remove("LastUpdated"));
 						break;
 				}
@@ -158,15 +171,5 @@ namespace net.vieapps.Services.IPLocations
 				throw this.GetRuntimeException(requestInfo, ex, stopwatch);
 			}
 		}
-
-		protected override Task ProcessInterCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
-		{
-			if (message.Type.IsEquals("Update"))
-				new IPLocation().Fill(message.Data, ipLocation => Utility.IPLocations[ipLocation.IP] = ipLocation);
-			else if (message.Type.IsEquals("Sync"))
-				Utility.IPLocations.Select(kvp => kvp.Value).ToList().ForEach(ipLocation => ipLocation.Send(this.ServiceName, this.NodeID));
-			return Task.CompletedTask;
-		}
-
 	}
 }
