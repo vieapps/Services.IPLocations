@@ -2,12 +2,13 @@
 using System;
 using System.Xml;
 using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Configuration;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
+using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
 #endregion
@@ -43,13 +44,13 @@ namespace net.vieapps.Services.IPLocations
 				Utility.SecondProvider = Utility.Providers.TryGetValue(name, out provider) ? provider : Utility.Providers.FirstOrDefault().Value;
 
 				Utility.SameLocationRegex = new Regex(svcConfig.Section.Attributes["sameLocationRegex"]?.Value ?? @"\d{1,3}\.\d{1,3}");
-				Utility.SameLocationAddress = (svcConfig.Section.Attributes["sameLocationAddress"]?.Value ?? "").ToList(";", true);
+				Utility.SameLocationAddress = (svcConfig.Section.Attributes["sameLocationAddress"]?.Value ?? "127.0.0.1").ToList(";", true);
 				Utility.ExternalURI = svcConfig.Section.Attributes["externalURI"]?.Value ?? this.GetHttpURI("External", "https://apis.vieapps.net");
 				Utility.DefaultLocation = svcConfig.Section.Attributes["default"]?.Value ?? "Hanoi, Vietnam";
 			}
 
 			// prepare at first run
-			if (!string.IsNullOrWhiteSpace(Utility.ExternalURI))
+			if (!string.IsNullOrWhiteSpace(Utility.ExternalURI) && !Utility.ExternalURI.IsEquals(UtilityService.GetAppSetting("HttpUri:APIs")))
 				try
 				{
 					await new Uri($"{Utility.ExternalURI}/discovery/services").FetchHttpAsync(this.CancellationToken).ConfigureAwait(false);
@@ -60,6 +61,8 @@ namespace net.vieapps.Services.IPLocations
 					this.Logger.LogError($"Error occurred while fetching external APIs ({Utility.ExternalURI}) => {ex.Message}", ex);
 					Utility.ExternalURI = null;
 				}
+			else
+				Utility.ExternalURI = null;
 			await Utility.PrepareAddressesAsync(this.CancellationToken, this.Logger).ConfigureAwait(false);
 
 			// info
@@ -90,6 +93,27 @@ namespace net.vieapps.Services.IPLocations
 				this.Logger.LogError($"Error occurred while fetching current location => {ex.Message}", ex);
 			}
 
+			// clean (12 hours)
+			this.StartTimer(async () =>
+			{
+				var userID = UtilityService.GetAppSetting("Users:SystemAccountID", "VIEAppsNGX-MMXVII-System-Account");
+				var ipLocations = await IPLocation.FindAsync(Filters<IPLocation>.LessThan("LastUpdated", DateTime.Now.AddMonths(-6)), null, 0, 1, null, this.CancellationToken).ConfigureAwait(false) ?? [];
+				await ipLocations.ForEachAsync(async ipLocation =>
+				{
+					Utility.IPLocations.Remove(ipLocation.ID);
+					await IPLocation.DeleteAsync<IPLocation>(ipLocation.ID, userID, this.CancellationToken).ConfigureAwait(false);
+					new CommunicateMessage(this.ServiceName)
+					{
+						Type = "Remove",
+						ExcludedNodeID = this.NodeID,
+						Data = new JObject
+						{
+							["ID"] = ipLocation.ID
+						}
+					}.Send();
+				}, true, false).ConfigureAwait(false);
+			}, 12 * 60 * 60);
+
 			// next step
 			next?.Invoke(this);
 		}
@@ -98,11 +122,10 @@ namespace net.vieapps.Services.IPLocations
 		{
 			if (message.Type.IsEquals("Update"))
 				new IPLocation().Fill(message.Data, ipLocation => Utility.IPLocations[ipLocation.IP] = ipLocation);
+			else if (message.Type.IsEquals("Remove"))
+				Utility.IPLocations.Remove(message.Data.Get<string>("ID"));
 			else if (message.Type.IsEquals("Sync"))
-			{
 				Utility.IPLocations.Select(kvp => kvp.Value).ToList().ForEach(ipLocation => ipLocation.Send());
-				this.WriteLogsAsync(UtilityService.NewUUID, $"Sync {Utility.IPLocations.Count:###,###,##0} ip-locations to others successful").Run();
-			}
 			return Task.CompletedTask;
 		}
 
