@@ -42,6 +42,8 @@ namespace net.vieapps.Services.IPLocations
 
 		internal static ConcurrentDictionary<string, IPLocation> IPLocations { get; } = [];
 
+		internal static ConcurrentHashSet<string> Fetching { get; } = [];
+
 		internal static List<IPAddress> PublicAddresses { get; } = [];
 
 		internal static List<IPAddress> LocalAddresses { get; } = [];
@@ -199,28 +201,43 @@ namespace net.vieapps.Services.IPLocations
 				}
 			}
 
+			if (ipLocation == null)
+			{
+				while (Utility.Fetching.Contains(ipAddress))
+					await Task.Delay(UtilityService.GetRandomNumber(123, 456), cancellationToken).ConfigureAwait(false);
+				Utility.IPLocations.TryGetValue(ipAddress, out ipLocation);
+			}
+
 			if (ipLocation == null || string.IsNullOrWhiteSpace(ipLocation.City) || "N/A".IsEquals(ipLocation.City) || (DateTime.Now - ipLocation.LastUpdated).Days > 30)
 			{
-				try
-				{
-					ipLocation = await Utility.GetAsync(Utility.FirstProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
-					if (string.IsNullOrWhiteSpace(ipLocation.City))
-						ipLocation = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
-					ipLocation.SaveAsync(doUpdate, logger).Run();
-				}
-				catch (Exception fe)
-				{
-					logger?.LogError($"Error occurred while processing with \"{Utility.FirstProvider?.Name}\" provider => {fe.Message}", fe);
+				if (Utility.Fetching.Add(ipAddress))
 					try
 					{
-						ipLocation = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
+						ipLocation = await Utility.GetAsync(Utility.FirstProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
+						if (string.IsNullOrWhiteSpace(ipLocation.City))
+							ipLocation = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
 						ipLocation.SaveAsync(doUpdate, logger).Run();
 					}
-					catch (Exception se)
+					catch (Exception fe)
 					{
-						logger.LogError($"Error occurred while processing with \"{Utility.SecondProvider?.Name}\" provider: {se.Message}", se);
+						logger?.LogError($"Error occurred while processing with \"{Utility.FirstProvider?.Name}\" provider => {fe.Message}", fe);
+						try
+						{
+							ipLocation = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
+							ipLocation.SaveAsync(doUpdate, logger).Run();
+						}
+						catch (Exception se)
+						{
+							logger.LogError($"Error occurred while processing with \"{Utility.SecondProvider?.Name}\" provider: {se.Message}", se);
+						}
 					}
-				}
+					finally
+					{
+						Utility.Fetching.TryRemove(ipAddress);
+					}
+				else
+					Utility.IPLocations.TryGetValue(ipAddress, out ipLocation);
+
 				if (ipLocation != null)
 				{
 					Utility.IPLocations[ipLocation.IP] = ipLocation;
@@ -260,7 +277,7 @@ namespace net.vieapps.Services.IPLocations
 
 		internal static bool IsSameLocation(this string ip)
 		{
-			if (IPAddress.IsLoopback(IPAddress.Parse(ip)))
+			if (ip.Equals("::1") || ip.Equals("127.0.0.1") || IPAddress.IsLoopback(IPAddress.Parse(ip)))
 				return true;
 
 			var ipMatched = Utility.SameLocationRegex?.Match(ip);
