@@ -25,6 +25,7 @@ namespace net.vieapps.Services.IPLocations
 			this.Syncable = false;
 			Utility.CancellationToken = this.CancellationToken;
 			Utility.Cache = new Components.Caching.Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
+			Utility.APIsURI = this.GetHttpURI("APIs", "https://apis.vieapps.net");
 			await base.StartAsync(args, initializeRepository).ConfigureAwait(false);
 
 			// configuration
@@ -45,12 +46,12 @@ namespace net.vieapps.Services.IPLocations
 
 				Utility.SameLocationRegex = new Regex(svcConfig.Section.Attributes["sameLocationRegex"]?.Value ?? @"\d{1,3}\.\d{1,3}");
 				Utility.SameLocationAddress = (svcConfig.Section.Attributes["sameLocationAddress"]?.Value ?? "127.0.0.1").ToList(";", true);
-				Utility.ExternalURI = svcConfig.Section.Attributes["externalURI"]?.Value ?? this.GetHttpURI("External", "https://apis.vieapps.net");
+				Utility.ExternalURI = svcConfig.Section.Attributes["externalURI"]?.Value ?? Utility.APIsURI;
 				Utility.DefaultLocation = svcConfig.Section.Attributes["default"]?.Value ?? "Hanoi, Vietnam";
 			}
 
 			// prepare at first run
-			if (!string.IsNullOrWhiteSpace(Utility.ExternalURI) && !Utility.ExternalURI.IsEquals(UtilityService.GetAppSetting("HttpUri:APIs")))
+			if (!string.IsNullOrWhiteSpace(Utility.ExternalURI) && !Utility.ExternalURI.IsEquals(Utility.APIsURI))
 				try
 				{
 					await new Uri($"{Utility.ExternalURI}/discovery/services").FetchHttpAsync(this.CancellationToken).ConfigureAwait(false);
@@ -97,10 +98,10 @@ namespace net.vieapps.Services.IPLocations
 			this.StartTimer(async () =>
 			{
 				var userID = UtilityService.GetAppSetting("Users:SystemAccountID", "VIEAppsNGX-MMXVII-System-Account");
-				var ipLocations = await IPLocation.FindAsync(Filters<IPLocation>.LessThan("LastUpdated", DateTime.Now.AddMonths(-6)), null, 0, 1, null, this.CancellationToken).ConfigureAwait(false) ?? [];
+				var ipLocations = await IPLocation.FindAsync(Filters<IPLocation>.LessThan("LastUpdated", DateTime.Now.AddDays(-45)), null, 0, 1, null, this.CancellationToken).ConfigureAwait(false) ?? [];
 				await ipLocations.ForEachAsync(async ipLocation =>
 				{
-					Utility.IPLocations.Remove(ipLocation.ID);
+					Utility.IPLocations.Remove(ipLocation.IP);
 					await IPLocation.DeleteAsync<IPLocation>(ipLocation.ID, userID, this.CancellationToken).ConfigureAwait(false);
 					new CommunicateMessage(this.ServiceName)
 					{
@@ -108,7 +109,7 @@ namespace net.vieapps.Services.IPLocations
 						ExcludedNodeID = this.NodeID,
 						Data = new JObject
 						{
-							["ID"] = ipLocation.ID
+							["IP"] = ipLocation.IP
 						}
 					}.Send();
 				}, true, false).ConfigureAwait(false);
@@ -123,7 +124,7 @@ namespace net.vieapps.Services.IPLocations
 			if (message.Type.IsEquals("Update"))
 				new IPLocation().Fill(message.Data, ipLocation => Utility.IPLocations[ipLocation.IP] = ipLocation);
 			else if (message.Type.IsEquals("Remove"))
-				Utility.IPLocations.Remove(message.Data.Get<string>("ID"));
+				Utility.IPLocations.Remove(message.Data.Get<string>("IP"));
 			else if (message.Type.IsEquals("Sync"))
 				Utility.IPLocations.Select(kvp => kvp.Value).ToList().ForEach(ipLocation => ipLocation.Send());
 			return Task.CompletedTask;

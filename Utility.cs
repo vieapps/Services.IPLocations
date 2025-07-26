@@ -32,6 +32,8 @@ namespace net.vieapps.Services.IPLocations
 
 		internal static List<string> SameLocationAddress { get; set; }
 
+		internal static string APIsURI { get; set; }
+
 		internal static string ExternalURI { get; set; }
 
 		internal static string DefaultLocation { get; set; } = "Hanoi, Vietnam";
@@ -58,12 +60,15 @@ namespace net.vieapps.Services.IPLocations
 		{
 			var uri = new Uri(Utility.Providers["ipstack"].GetUrl(ipAddress));
 			var json = JObject.Parse(await uri.FetchHttpAsync(cancellationToken).ConfigureAwait(false));
-			return json["error"] is JObject error
-				? throw new RemoteServerException(HttpStatusCode.InternalServerError, false, "GET", uri, null, null, $"{error.Get<string>("info")} ({error.Get<string>("code")} - {error.Get<string>("type")})")
+			if (json["error"] is JObject error)
+				throw new RemoteServerException(HttpStatusCode.InternalServerError, false, "GET", uri, null, null, $"{error.Get<string>("info")} ({error.Get<string>("code")} - {error.Get<string>("type")})");
+			var ip = json.Get<string>("ip");
+			return string.IsNullOrWhiteSpace(ip)
+				? null
 				: new IPLocation
 				{
-					ID = json.Get<string>("ip").GenerateUUID(),
-					IP = json.Get<string>("ip"),
+					ID = ip.GenerateUUID(),
+					IP = ip,
 					City = json.Get<string>("city"),
 					Region = json.Get<string>("region_name"),
 					Country = json.Get<string>("country_name"),
@@ -75,39 +80,46 @@ namespace net.vieapps.Services.IPLocations
 
 		internal static async Task<IPLocation> GetByIpApiAsync(string ipAddress, CancellationToken cancellationToken)
 		{
-			var json = JObject.Parse(await UtilityService.FetchHttpAsync(Utility.Providers["ipapi"].GetUrl(ipAddress), cancellationToken).ConfigureAwait(false));
+			var uri = new Uri(Utility.Providers["ipapi"].GetUrl(ipAddress));
+			var json = JObject.Parse(await uri.FetchHttpAsync(cancellationToken).ConfigureAwait(false));
 			var continent = json.Get<string>("timezone");
-			return new IPLocation
-			{
-				ID = json.Get<string>("query").GenerateUUID(),
-				IP = json.Get<string>("query"),
-				City = json.Get<string>("city"),
-				Region = json.Get<string>("regionName"),
-				Country = json.Get<string>("country"),
-				Continent = continent.Left(continent.IndexOf("/")),
-				Latitude = json.Get<string>("lat"),
-				Longitude = json.Get<string>("lon"),
-			};
+			var ip = json.Get<string>("query");
+			return string.IsNullOrWhiteSpace(ip)
+				? null
+				: new IPLocation
+				{
+					ID = ip.GenerateUUID(),
+					IP = ip,
+					City = json.Get<string>("city"),
+					Region = json.Get<string>("regionName"),
+					Country = json.Get<string>("country"),
+					Continent = continent.Left(continent.IndexOf('/')),
+					Latitude = json.Get<string>("lat"),
+					Longitude = json.Get<string>("lon"),
+				};
 		}
 
 		internal static async Task<IPLocation> GetByKeyCdnAsync(string ipAddress, CancellationToken cancellationToken)
 		{
 			var uri = new Uri(Utility.Providers["keycdn"].GetUrl(ipAddress));
-			var json = JObject.Parse(await uri.FetchHttpAsync(cancellationToken).ConfigureAwait(false));
-			if ("success" != json.Get<string>("status"))
+			var json = JObject.Parse(await uri.FetchHttpAsync(new Dictionary<string, string>{ ["User-Agent"] = $"keycdn-tools:{Utility.APIsURI}" }, 90, cancellationToken).ConfigureAwait(false));
+			if (!"success".IsEquals(json.Get<string>("status")))
 				throw new RemoteServerException(HttpStatusCode.InternalServerError, false, "GET", uri, null, null, json.Get<string>("description"));
-			json = json["data"]["geo"] as JObject;
-			return new IPLocation
-			{
-				ID = json.Get<string>("ip").GenerateUUID(),
-				IP = json.Get<string>("ip"),
-				City = json.Get<string>("city"),
-				Region = json.Get<string>("region_name"),
-				Country = json.Get<string>("country_name"),
-				Continent = json.Get<string>("continent_name"),
-				Latitude = json.Get<string>("latitude"),
-				Longitude = json.Get<string>("longitude"),
-			};
+			json = json.Get<JObject>("data")?.Get<JObject>("geo");
+			var ip = json?.Get<string>("ip");
+			return string.IsNullOrWhiteSpace(ip)
+				? null
+				: new IPLocation
+				{
+					ID = ip.GenerateUUID(),
+					IP = ip,
+					City = json.Get<string>("city"),
+					Region = json.Get<string>("region_name"),
+					Country = json.Get<string>("country_name"),
+					Continent = json.Get<string>("continent_name"),
+					Latitude = json.Get<string>("latitude"),
+					Longitude = json.Get<string>("longitude"),
+				};
 		}
 
 		internal static async Task<IPLocation> GetAsync(CancellationToken cancellationToken, string ipAddress = null)
@@ -123,7 +135,7 @@ namespace net.vieapps.Services.IPLocations
 
 			try
 			{
-				switch ((providerName ?? "ipstack").ToLower())
+				switch ((providerName ?? "ipapi").ToLower())
 				{
 					case "ipstack":
 						ipLocation = await Utility.GetByIpStackAsync(ipAddress, cancellationToken).ConfigureAwait(false);
@@ -138,9 +150,13 @@ namespace net.vieapps.Services.IPLocations
 						ipLocation = await Utility.GetByIpApiAsync(ipAddress, cancellationToken).ConfigureAwait(false);
 						break;
 				}
-				return Utility.IPLocations[ipLocation.IP] = ipLocation;
+				return ipLocation == null ? null : Utility.IPLocations[ipLocation.IP] = ipLocation;
 			}
-			catch
+			catch (OperationCanceledException)
+			{
+				return null;
+			}
+			catch (Exception)
 			{
 				if (!string.IsNullOrWhiteSpace(Utility.ExternalURI))
 					try
@@ -218,6 +234,7 @@ namespace net.vieapps.Services.IPLocations
 							ipLocation = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
 						ipLocation.SaveAsync(doUpdate, logger).Run();
 					}
+					catch (OperationCanceledException) { }
 					catch (Exception fe)
 					{
 						logger?.LogError($"Error occurred while processing with \"{Utility.FirstProvider?.Name}\" provider => {fe.Message}", fe);
@@ -226,6 +243,7 @@ namespace net.vieapps.Services.IPLocations
 							ipLocation = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
 							ipLocation.SaveAsync(doUpdate, logger).Run();
 						}
+						catch (OperationCanceledException) { }
 						catch (Exception se)
 						{
 							logger.LogError($"Error occurred while processing with \"{Utility.SecondProvider?.Name}\" provider: {se.Message}", se);
