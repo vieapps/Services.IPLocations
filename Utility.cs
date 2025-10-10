@@ -9,6 +9,7 @@ using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
+using net.vieapps.Components.Caching;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
@@ -18,7 +19,7 @@ namespace net.vieapps.Services.IPLocations
 {
 	public static class Utility
 	{
-		public static Components.Caching.Cache Cache { get; internal set; }
+		public static Cache Cache { get; } = Cache.CreateInstance("VIEApps-Services-IPLocations", Logger.GetLoggerFactory(), "true".IsEquals(UtilityService.GetAppSetting("IPLocations:Cache:L1")));
 
 		internal static Dictionary<string, Provider> Providers { get; set; }
 

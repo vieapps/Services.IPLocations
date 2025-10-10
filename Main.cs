@@ -3,9 +3,10 @@ using System;
 using System.Xml;
 using System.Linq;
 using System.Diagnostics;
-using System.Configuration;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Configuration;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Repository;
@@ -19,12 +20,41 @@ namespace net.vieapps.Services.IPLocations
 	{
 		public override string ServiceName => "IPLocations";
 
+		IDisposable CacheCommunicator { get; set; }
+
+		public override Task RegisterServiceAsync(IEnumerable<string> args, Action<IService> onSuccess = null, Action<Exception> onError = null)
+			=> base.RegisterServiceAsync
+			(
+				args,
+				_ =>
+				{
+					this.CacheCommunicator?.Dispose();
+					this.CacheCommunicator = Router.IncomingChannel.AssignProcessL1CacheRequest(Utility.Cache, this);
+					Utility.Cache.AssignSendL1CacheRequest(this);
+					onSuccess?.Invoke(this);
+				},
+				onError
+			);
+
+		public override Task UnregisterServiceAsync(IEnumerable<string> args, bool available = true, Action<IService> onSuccess = null, Action<Exception> onError = null)
+			=> base.UnregisterServiceAsync
+			(
+				args,
+				available,
+				_ =>
+				{
+					this.CacheCommunicator?.Dispose();
+					this.CacheCommunicator = null;
+					onSuccess?.Invoke(this);
+				},
+				onError
+			);
+
 		public override async Task StartAsync(string[] args = null, bool initializeRepository = true, Action<IService> next = null)
 		{
 			// initialize
 			this.Syncable = false;
 			Utility.CancellationToken = this.CancellationToken;
-			Utility.Cache = new Components.Caching.Cache($"VIEApps-Services-{this.ServiceName}", Components.Utility.Logger.GetLoggerFactory());
 			Utility.APIsURI = this.GetHttpURI("APIs", "https://apis.vieapps.net");
 			await base.StartAsync(args, initializeRepository).ConfigureAwait(false);
 
