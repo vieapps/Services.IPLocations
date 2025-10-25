@@ -27,9 +27,9 @@ namespace net.vieapps.Services.IPLocations
 
 		internal static Provider SecondProvider { get; set; }
 
-		internal static Regex PublicAddressRegex { get; } = new Regex(@"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}");
+		internal static Regex PublicAddressRegex { get; } = new(@"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}");
 
-		internal static Regex SameLocationRegex { get; set; } = new Regex(@"\d{1,3}\.\d{1,3}");
+		internal static Regex SameLocationRegex { get; set; } = new(@"\d{1,3}\.\d{1,3}");
 
 		internal static List<string> SameLocationAddress { get; set; }
 
