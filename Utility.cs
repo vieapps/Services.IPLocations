@@ -233,7 +233,7 @@ namespace net.vieapps.Services.IPLocations
 						ipLocation = await Utility.GetAsync(Utility.FirstProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
 						if (string.IsNullOrWhiteSpace(ipLocation.City))
 							ipLocation = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
-						ipLocation.SaveAsync(doUpdate, logger).Run();
+						ipLocation.SaveAsync(doUpdate, logger).Execute();
 					}
 					catch (OperationCanceledException) { }
 					catch (Exception fe)
@@ -242,7 +242,7 @@ namespace net.vieapps.Services.IPLocations
 						try
 						{
 							ipLocation = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
-							ipLocation.SaveAsync(doUpdate, logger).Run();
+							ipLocation.SaveAsync(doUpdate, logger).Execute();
 						}
 						catch (OperationCanceledException) { }
 						catch (Exception se)
