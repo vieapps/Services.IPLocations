@@ -29,8 +29,10 @@ namespace net.vieapps.Services.IPLocations
 				_ =>
 				{
 					this.CacheCommunicator?.Dispose();
-					this.CacheCommunicator = Router.IncomingChannel.AssignProcessL1CacheRequest(Utility.Cache, this);
-					Utility.Cache.AssignSendL1CacheRequest(this);
+					this.CacheCommunicator = Router.GotBackupRouter()
+						? Router.BackupChannel.AssignProcessL1CacheRequest(Utility.Cache, this)
+						: Router.IncomingChannel.AssignProcessL1CacheRequest(Utility.Cache, this);
+					Utility.Cache.AssignSendL1CacheRequest(this, Router.GotBackupRouter());
 					onSuccess?.Invoke(this);
 				},
 				onError
