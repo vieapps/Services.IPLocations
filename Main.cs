@@ -22,17 +22,22 @@ namespace net.vieapps.Services.IPLocations
 
 		IDisposable CacheCommunicator { get; set; }
 
+		void RegisterCacheCommunicator()
+		{
+			this.CacheCommunicator?.Dispose();
+			this.CacheCommunicator = Router.GotBackupRouter()
+				? Router.BackupChannel.AssignProcessL1CacheRequest(Utility.Cache, this)
+				: Router.IncomingChannel.AssignProcessL1CacheRequest(Utility.Cache, this);
+			Utility.Cache.AssignSendL1CacheRequest(this, Router.GotBackupRouter());
+		}
+
 		public override Task RegisterServiceAsync(IEnumerable<string> args, Action<IService> onSuccess = null, Action<Exception> onError = null)
 			=> base.RegisterServiceAsync
 			(
 				args,
 				_ =>
 				{
-					this.CacheCommunicator?.Dispose();
-					this.CacheCommunicator = Router.GotBackupRouter()
-						? Router.BackupChannel.AssignProcessL1CacheRequest(Utility.Cache, this)
-						: Router.IncomingChannel.AssignProcessL1CacheRequest(Utility.Cache, this);
-					Utility.Cache.AssignSendL1CacheRequest(this, Router.GotBackupRouter());
+					this.RegisterCacheCommunicator();
 					onSuccess?.Invoke(this);
 				},
 				onError
@@ -58,7 +63,7 @@ namespace net.vieapps.Services.IPLocations
 			this.Syncable = false;
 			Utility.CancellationToken = this.CancellationToken;
 			Utility.APIsURI = this.GetHttpURI("APIs", "https://apis.vieapps.net");
-			await base.StartAsync(args, initializeRepository).ConfigureAwait(false);
+			await this.StartAsync(args, (_, _) => this.RegisterCacheCommunicator(), initializeRepository).ConfigureAwait(false);
 
 			// configuration
 			if (ConfigurationManager.GetSection("net.vieapps.services.iplocations.providers") is AppConfigurationSectionHandler svcConfig)
