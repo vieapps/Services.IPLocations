@@ -211,10 +211,10 @@ namespace net.vieapps.Services.IPLocations
 								? await Utility.GetAsync(cts.Token, ipAddress).ConfigureAwait(false) ?? new()
 								: ipAddress.IsSameLocation() && Utility.CurrentLocation != null
 									? new IPLocation().CopyFrom(Utility.CurrentLocation, null, ipLocation =>
-										{
-											ipLocation.ID = ipAddress.GenerateUUID();
-											ipLocation.IP = ipAddress;
-										})
+									{
+										ipLocation.ID = ipAddress.GenerateUUID();
+										ipLocation.IP = ipAddress;
+									})
 									: await Utility.GetLocationAsync(ipAddress, this.Logger, cts.Token).ConfigureAwait(false) ?? new()
 							).ToJson(ip => ip.Remove("LastUpdated"));
 						break;

@@ -292,7 +292,7 @@ namespace net.vieapps.Services.IPLocations
 				Type = "Update",
 				ExcludedNodeID = ServiceComponent.ServiceComponent.NodeID,
 				Data = ipLocation.ToJson()
-			}.Send();
+			}.Send(Router.GotBackupRouter());
 
 		internal static bool IsSameLocation(this string ip)
 		{
@@ -386,17 +386,11 @@ namespace net.vieapps.Services.IPLocations
 
 	//  --------------------------------------------------------------------------------------------
 
-	internal class Provider
+	internal class Provider(string name = null, string uriPattern = null, string accessKey = null)
 	{
-		public Provider(string name = null, string uriPattern = null, string accessKey = null)
-		{
-			this.Name = name ?? "";
-			this.UriPattern = uriPattern ?? "";
-			this.AccessKey = accessKey ?? "";
-		}
-		public string Name { get; set; } = "";
-		public string UriPattern { get; set; } = "";
-		public string AccessKey { get; set; } = "";
+		public string Name { get; set; } = name ?? "";
+		public string UriPattern { get; set; } = uriPattern ?? "";
+		public string AccessKey { get; set; } = accessKey ?? "";
 	}
 
 	//  --------------------------------------------------------------------------------------------
