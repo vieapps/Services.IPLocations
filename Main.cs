@@ -123,7 +123,7 @@ namespace net.vieapps.Services.IPLocations
 			try
 			{
 				await Task.Delay(UtilityService.GetRandomNumber(123, 456), this.CancellationToken).ConfigureAwait(false);
-				Utility.CurrentLocation = await Utility.GetCurrentLocationAsync(this.Logger, this.CancellationToken).ConfigureAwait(false);
+				Utility.CurrentLocation = await Utility.GetCurrentLocationAsync(this.Logger.LogError, this.CancellationToken).ConfigureAwait(false);
 				this.Logger.LogInformation($"Current Location: {(Utility.CurrentLocation != null ? $"{Utility.CurrentLocation.City}, {Utility.CurrentLocation?.Region}, {Utility.CurrentLocation.Country}" : Utility.DefaultLocation)}");
 			}
 			catch (Exception ex)
@@ -199,7 +199,7 @@ namespace net.vieapps.Services.IPLocations
 						if (Utility.PublicAddresses.Count < 1)
 							await Utility.PrepareAddressesAsync(this.CancellationToken, this.Logger, false).ConfigureAwait(false);
 						json = requestInfo.ObjectName.IsStartsWith("current")
-							? (Utility.CurrentLocation ?? (Utility.CurrentLocation = await Utility.GetCurrentLocationAsync(this.Logger, cts.Token).ConfigureAwait(false)) ?? new()).ToJson(ip => ip.Remove("LastUpdated"))
+							? (Utility.CurrentLocation ?? (Utility.CurrentLocation = await Utility.GetCurrentLocationAsync(this.Logger.LogError, cts.Token).ConfigureAwait(false)) ?? new()).ToJson(ip => ip.Remove("LastUpdated"))
 							: Utility.PublicAddresses.Select(address => new JValue($"{address}")).ToJArray();
 						break;
 
@@ -215,7 +215,7 @@ namespace net.vieapps.Services.IPLocations
 										ipLocation.ID = ipAddress.GenerateUUID();
 										ipLocation.IP = ipAddress;
 									})
-									: await Utility.GetLocationAsync(ipAddress, this.Logger, cts.Token).ConfigureAwait(false) ?? new()
+									: await Utility.GetLocationAsync(ipAddress, requestInfo.GetQueryParameter("x-provider"), requestInfo.ContainsKey("x-provider") || requestInfo.ContainsKey("x-use-internal"), (msg, ex) => this.WriteLogsAsync(requestInfo, msg, ex).Execute(), cts.Token).ConfigureAwait(false) ?? new()
 							).ToJson(ip => ip.Remove("LastUpdated"));
 						break;
 				}

@@ -129,28 +129,19 @@ namespace net.vieapps.Services.IPLocations
 			return new IPLocation().Fill(data.ToJson(), ipLocation => ipLocation.LastUpdated = DateTime.Now);
 		}
 
-		internal static async Task<IPLocation> GetAsync(string providerName, string ipAddress, CancellationToken cancellationToken)
+		internal static async Task<IPLocation> GetAsync(string providerName, string ipAddress, bool force, CancellationToken cancellationToken)
 		{
-			if (Utility.IPLocations.TryGetValue(ipAddress, out var ipLocation))
+			if (!force && Utility.IPLocations.TryGetValue(ipAddress, out var ipLocation))
 				return ipLocation;
 
 			try
 			{
-				switch ((providerName ?? "ipapi").ToLower())
+				ipLocation = (providerName ?? "ipapi").ToLower() switch
 				{
-					case "ipstack":
-						ipLocation = await Utility.GetByIpStackAsync(ipAddress, cancellationToken).ConfigureAwait(false);
-						break;
-
-					case "keycdn":
-						ipLocation = await Utility.GetByKeyCdnAsync(ipAddress, cancellationToken).ConfigureAwait(false);
-						break;
-
-					case "ipapi":
-					default:
-						ipLocation = await Utility.GetByIpApiAsync(ipAddress, cancellationToken).ConfigureAwait(false);
-						break;
-				}
+					"ipstack" => await Utility.GetByIpStackAsync(ipAddress, cancellationToken).ConfigureAwait(false),
+					"keycdn" => await Utility.GetByKeyCdnAsync(ipAddress, cancellationToken).ConfigureAwait(false),
+					_ => await Utility.GetByIpApiAsync(ipAddress, cancellationToken).ConfigureAwait(false),
+				};
 				return ipLocation == null ? null : Utility.IPLocations[ipLocation.IP] = ipLocation;
 			}
 			catch (OperationCanceledException)
@@ -159,7 +150,7 @@ namespace net.vieapps.Services.IPLocations
 			}
 			catch (Exception)
 			{
-				if (!string.IsNullOrWhiteSpace(Utility.ExternalURI))
+				if (!force && !string.IsNullOrWhiteSpace(Utility.ExternalURI))
 					try
 					{
 						ipLocation = await Utility.GetAsync(cancellationToken, ipAddress).ConfigureAwait(false);
@@ -170,7 +161,7 @@ namespace net.vieapps.Services.IPLocations
 			}
 		}
 
-		internal static async Task<IPLocation> SaveAsync(this IPLocation ipLocation, bool doUpdate = false, ILogger logger = null)
+		internal static async Task<IPLocation> SaveAsync(this IPLocation ipLocation, bool doUpdate = false, Action<string, Exception> onError = null)
 		{
 			ipLocation.LastUpdated = DateTime.Now;
 			try
@@ -189,17 +180,18 @@ namespace net.vieapps.Services.IPLocations
 						await Utility.Cache.SetAsync(ipLocation, Utility.CancellationToken).ConfigureAwait(false);
 					}
 				else
-					logger?.LogError($"Error occurred while updating database => {ex.Message}", ex);
+					onError?.Invoke($"Error occurred while updating database => {ex.Message}", ex);
 			}
 			return ipLocation;
 		}
 
-		internal static async Task<IPLocation> GetLocationAsync(string ipAddress, ILogger logger, CancellationToken cancellationToken)
+		internal static async Task<IPLocation> GetLocationAsync(string ipAddress, string provider, bool force, Action<string, Exception> onError, CancellationToken cancellationToken)
 		{
 			var doUpdate = false;
 			var doBroadcast = false;
+			IPLocation ipLocation = null;
 
-			if (!Utility.IPLocations.TryGetValue(ipAddress, out var ipLocation))
+			if (!force && !Utility.IPLocations.TryGetValue(ipAddress, out ipLocation))
 			{
 				try
 				{
@@ -208,7 +200,7 @@ namespace net.vieapps.Services.IPLocations
 				}
 				catch (Exception ex)
 				{
-					logger.LogError($"Error occurred while fetching IP address from database [\"{ipAddress}\"] => {ex.Message}", ex);
+					onError?.Invoke($"Error occurred while fetching IP address from database [\"{ipAddress}\"] => {ex.Message}", ex);
 					ipLocation = await Utility.Cache.FetchAsync<IPLocation>(ipAddress.GenerateUUID(), cancellationToken).ConfigureAwait(false);
 				}
 				if (ipLocation != null)
@@ -230,24 +222,24 @@ namespace net.vieapps.Services.IPLocations
 				if (Utility.Fetching.Add(ipAddress))
 					try
 					{
-						ipLocation = await Utility.GetAsync(Utility.FirstProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
+						ipLocation = await Utility.GetAsync(provider ?? Utility.FirstProvider?.Name, ipAddress, force, cancellationToken).ConfigureAwait(false);
 						if (string.IsNullOrWhiteSpace(ipLocation.City))
-							ipLocation = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
-						ipLocation.SaveAsync(doUpdate, logger).Execute();
+							ipLocation = await Utility.GetAsync(provider ?? Utility.SecondProvider?.Name, ipAddress, force, cancellationToken).ConfigureAwait(false);
+						ipLocation.SaveAsync(doUpdate, onError).Execute();
 					}
 					catch (OperationCanceledException) { }
 					catch (Exception fe)
 					{
-						logger?.LogError($"Error occurred while processing with \"{Utility.FirstProvider?.Name}\" provider => {fe.Message}", fe);
+						onError?.Invoke($"Error occurred while processing with \"{provider ?? Utility.FirstProvider?.Name}\" provider => {fe.Message}", fe);
 						try
 						{
-							ipLocation = await Utility.GetAsync(Utility.SecondProvider?.Name, ipAddress, cancellationToken).ConfigureAwait(false);
-							ipLocation.SaveAsync(doUpdate, logger).Execute();
+							ipLocation = await Utility.GetAsync(provider ?? Utility.SecondProvider?.Name, ipAddress, force, cancellationToken).ConfigureAwait(false);
+							ipLocation.SaveAsync(doUpdate, onError).Execute();
 						}
 						catch (OperationCanceledException) { }
 						catch (Exception se)
 						{
-							logger.LogError($"Error occurred while processing with \"{Utility.SecondProvider?.Name}\" provider: {se.Message}", se);
+							onError?.Invoke($"Error occurred while processing with \"{provider ?? Utility.SecondProvider?.Name}\" provider: {se.Message}", se);
 						}
 					}
 					finally
@@ -280,10 +272,10 @@ namespace net.vieapps.Services.IPLocations
 			};
 		}
 
-		internal static Task<IPLocation> GetCurrentLocationAsync(ILogger logger, CancellationToken cancellationToken)
+		internal static Task<IPLocation> GetCurrentLocationAsync(Action<string, Exception> onError, CancellationToken cancellationToken)
 		{
 			var ipAddress = Utility.PublicAddresses.FirstOrDefault(address => $"{address}".IndexOf('.') > 0 || $"{address}".IndexOf(':') > 0);
-			return ipAddress != null ? Utility.GetLocationAsync($"{ipAddress}", logger, cancellationToken) : Task.FromResult<IPLocation>(null);
+			return ipAddress != null ? Utility.GetLocationAsync($"{ipAddress}", null, false, onError, cancellationToken) : Task.FromResult<IPLocation>(null);
 		}
 
 		internal static void Send(this IPLocation ipLocation)
