@@ -2,6 +2,7 @@
 using System;
 using System.Linq;
 using System.Net;
+using System.Dynamic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -21,11 +22,9 @@ namespace net.vieapps.Services.IPLocations
 	{
 		public static Cache Cache { get; } = Cache.CreateInstance("VIEApps-Services-IPLocations", Logger.GetLoggerFactory(), "true".IsEquals(UtilityService.GetAppSetting("IPLocations:Cache:L1")));
 
-		internal static Dictionary<string, Provider> Providers { get; set; }
+		internal static List<Provider> Providers { get; set; } = [];
 
-		internal static Provider FirstProvider { get; set; }
-
-		internal static Provider SecondProvider { get; set; }
+		internal static string DefaultProvider { get; set; }
 
 		internal static Regex PublicAddressRegex { get; } = new(@"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}");
 
@@ -51,77 +50,58 @@ namespace net.vieapps.Services.IPLocations
 
 		internal static List<IPAddress> LocalAddresses { get; } = [];
 
+		internal static async Task<IPLocation> GetIpAsync(string providerName, string ipAddress, Func<ExpandoObject, (string Message, string Code, string Type)> getError, Func<ExpandoObject, string> getIP, Func<ExpandoObject, string> getCity, Func<ExpandoObject, string> getRegion, Func<ExpandoObject, string> getCountry, Func<ExpandoObject, string> getContinent, Func<ExpandoObject, string> getLatitude, Func<ExpandoObject, string> getLongitude, CancellationToken cancellationToken)
+		{
+			var provider = Utility.Providers.FirstOrDefault(prvdr => prvdr.Name.IsEquals(providerName));
+			var uri = provider != null ? new Uri(provider.GetUrl(ipAddress)) : null;
+			var data = provider != null ? JObject.Parse(await uri.FetchHttpAsync("keycdn".IsEquals(providerName) ? new Dictionary<string, string> { ["User-Agent"] = $"keycdn-tools:{Utility.APIsURI}" } : null, 15, cancellationToken).ConfigureAwait(false)).ToExpandoObject() : null;
+			var error = getError(data);
+			if (!string.IsNullOrWhiteSpace(error.Message) || !string.IsNullOrWhiteSpace(error.Code) || !string.IsNullOrWhiteSpace(error.Type))
+				throw new RemoteServerException(HttpStatusCode.InternalServerError, false, "GET", uri, null, null, $"{error.Message} ({error.Code} - {error.Type})");
+			var ip = getIP != null ? getIP(data) : data?.Get<string>("ip");
+			var city = getCity != null ? getCity(data) : data?.Get<string>("city");
+			var continent = getContinent != null ? getContinent(data) : data?.Get<string>("continent_name");
+			return string.IsNullOrWhiteSpace(ip) || string.IsNullOrWhiteSpace(city)
+				? null
+				: new IPLocation
+				{
+					ID = ip.GenerateUUID(),
+					IP = ip,
+					City = city,
+					Region = getRegion != null ? getRegion(data) : data.Get<string>("region_name"),
+					Country = getCountry != null ? getCountry(data) : data.Get<string>("country_name"),
+					Continent = !string.IsNullOrWhiteSpace(continent) && continent.IndexOf('/') > 0 ? continent.Left(continent.IndexOf('/')) : continent ?? "N/A",
+					Latitude = getLatitude != null ? getLatitude(data) : data.Get<string>("latitude"),
+					Longitude = getLongitude != null ? getLongitude(data) : data.Get<string>("longitude")
+				};
+		}
+
 		internal static async Task<IPAddress> GetByDynDnsAsync(CancellationToken cancellationToken)
 			=> IPAddress.Parse(Utility.PublicAddressRegex.Matches(await new Uri("http://checkip.dyndns.org/").FetchHttpAsync(cancellationToken).ConfigureAwait(false))[0].ToString());
 
 		internal static async Task<IPAddress> GetByIpifyAsync(CancellationToken cancellationToken)
 			=> IPAddress.Parse(Utility.PublicAddressRegex.Matches(await new Uri("http://api.ipify.org/").FetchHttpAsync(cancellationToken).ConfigureAwait(false))[0].ToString());
 
-		internal static async Task<IPLocation> GetByIpStackAsync(string ipAddress, CancellationToken cancellationToken)
-		{
-			var uri = new Uri(Utility.Providers["ipstack"].GetUrl(ipAddress));
-			var json = JObject.Parse(await uri.FetchHttpAsync(cancellationToken).ConfigureAwait(false));
-			if (json["error"] is JObject error)
-				throw new RemoteServerException(HttpStatusCode.InternalServerError, false, "GET", uri, null, null, $"{error.Get<string>("info")} ({error.Get<string>("code")} - {error.Get<string>("type")})");
-			var ip = json.Get<string>("ip");
-			return string.IsNullOrWhiteSpace(ip)
-				? null
-				: new IPLocation
-				{
-					ID = ip.GenerateUUID(),
-					IP = ip,
-					City = json.Get<string>("city"),
-					Region = json.Get<string>("region_name"),
-					Country = json.Get<string>("country_name"),
-					Continent = json.Get<string>("continent_name"),
-					Latitude = json.Get<string>("latitude"),
-					Longitude = json.Get<string>("longitude"),
-				};
-		}
+		internal static Task<IPLocation> GetByIpStackAsync(string ipAddress, CancellationToken cancellationToken)
+			=> Utility.GetIpAsync("ipstack", ipAddress, data => (data?.Get<string>("error.info"), data?.Get<string>("error.code"), data?.Get<string>("error.type")), null, null, null, null, null, null, null, cancellationToken);
 
-		internal static async Task<IPLocation> GetByIpApiAsync(string ipAddress, CancellationToken cancellationToken)
-		{
-			var uri = new Uri(Utility.Providers["ipapi"].GetUrl(ipAddress));
-			var json = JObject.Parse(await uri.FetchHttpAsync(cancellationToken).ConfigureAwait(false));
-			var continent = json.Get<string>("timezone");
-			var ip = json.Get<string>("query");
-			return string.IsNullOrWhiteSpace(ip)
-				? null
-				: new IPLocation
-				{
-					ID = ip.GenerateUUID(),
-					IP = ip,
-					City = json.Get<string>("city"),
-					Region = json.Get<string>("regionName"),
-					Country = json.Get<string>("country"),
-					Continent = continent.Left(continent.IndexOf('/')),
-					Latitude = json.Get<string>("lat"),
-					Longitude = json.Get<string>("lon"),
-				};
-		}
+		internal static Task<IPLocation> GetByIpApiCoAsync(string ipAddress, CancellationToken cancellationToken)
+			=> Utility.GetIpAsync("ipapi.co", ipAddress, data => (null, null, null), null, null, data => data?.Get<string>("region"), null, data => data?.Get<string>("timezone"), null, null, cancellationToken);
 
-		internal static async Task<IPLocation> GetByKeyCdnAsync(string ipAddress, CancellationToken cancellationToken)
-		{
-			var uri = new Uri(Utility.Providers["keycdn"].GetUrl(ipAddress));
-			var json = JObject.Parse(await uri.FetchHttpAsync(new Dictionary<string, string>{ ["User-Agent"] = $"keycdn-tools:{Utility.APIsURI}" }, 90, cancellationToken).ConfigureAwait(false));
-			if (!"success".IsEquals(json.Get<string>("status")))
-				throw new RemoteServerException(HttpStatusCode.InternalServerError, false, "GET", uri, null, null, json.Get<string>("description"));
-			json = json.Get<JObject>("data")?.Get<JObject>("geo");
-			var ip = json?.Get<string>("ip");
-			return string.IsNullOrWhiteSpace(ip)
-				? null
-				: new IPLocation
-				{
-					ID = ip.GenerateUUID(),
-					IP = ip,
-					City = json.Get<string>("city"),
-					Region = json.Get<string>("region_name"),
-					Country = json.Get<string>("country_name"),
-					Continent = json.Get<string>("continent_name"),
-					Latitude = json.Get<string>("latitude"),
-					Longitude = json.Get<string>("longitude"),
-				};
-		}
+		internal static Task<IPLocation> GetByIpApiComAsync(string ipAddress, CancellationToken cancellationToken)
+			=> Utility.GetIpAsync("ip-api.com", ipAddress, data => (data?.Get<string>("error.info"), data?.Get<string>("error.code"), data?.Get<string>("error.type")), data => data?.Get<string>("query"), null, data => data?.Get<string>("regionName"), data => data?.Get<string>("country"), data => data?.Get<string>("timezone"), data => data?.Get<string>("lat"), data => data?.Get<string>("lon"), cancellationToken);
+
+		internal static Task<IPLocation> GetByKeyCdnAsync(string ipAddress, CancellationToken cancellationToken)
+			=> Utility.GetIpAsync("keycdn", ipAddress, data => "success".IsEquals(data.Get<string>("status")) ? (null, null, null) : (data?.Get<string>("description"), "500", data?.Get<string>("status")), null, null, null, null, data => data?.Get<string>("geo.continent_name"), null, null, cancellationToken);
+
+		internal static Task<IPLocation> GetByIpWhoisAsync(string ipAddress, CancellationToken cancellationToken)
+			=> Utility.GetIpAsync("ipwhois", ipAddress, data => (null, null, null), null, null, data => data?.Get<string>("region"), data => data?.Get<string>("country"), data => data?.Get<string>("timezone.id"), null, null, cancellationToken);
+
+		internal static Task<IPLocation> GetByFindIpAsync(string ipAddress, CancellationToken cancellationToken)
+			=> Utility.GetIpAsync("findip", ipAddress, data => (null, null, null), _ => ipAddress, data => data?.Get<string>("city.names.en"), data => data?.ToJson()?.Get<JArray>("subdivisions")?.FirstOrDefault()?.Get<JObject>("names")?.Get<string>("en") ?? data?.Get<string>("city.names.en"), data => data?.Get<string>("country.names.en"), data => data?.Get<string>("continent.names.en"), data => data?.Get<string>("location.latitude"), data => data?.Get<string>("location.longitude"), cancellationToken);
+
+		internal static Task<IPLocation> GetByGeoLocationAsync(string ipAddress, CancellationToken cancellationToken)
+			=> Utility.GetIpAsync("geolocation", ipAddress, data => (null, null, null), _ => ipAddress, data => data?.Get<string>("location.district"), data => data?.Get<string>("location.city"), data => data?.Get<string>("location.country_name"), data => data?.Get<string>("location.continent_name"), data => data?.Get<string>("location.latitude"), data => data?.Get<string>("location.longitude"), cancellationToken);
 
 		internal static async Task<IPLocation> GetAsync(CancellationToken cancellationToken, string ipAddress = null)
 		{
@@ -129,18 +109,23 @@ namespace net.vieapps.Services.IPLocations
 			return new IPLocation().Fill(data.ToJson(), ipLocation => ipLocation.LastUpdated = DateTime.Now);
 		}
 
-		internal static async Task<IPLocation> GetAsync(string providerName, string ipAddress, bool force, CancellationToken cancellationToken)
+		internal static async Task<IPLocation> GetAsync(Provider provider, string ipAddress, bool force, CancellationToken cancellationToken)
 		{
 			if (!force && Utility.IPLocations.TryGetValue(ipAddress, out var ipLocation))
 				return ipLocation;
 
 			try
 			{
-				ipLocation = (providerName ?? "ipapi").ToLower() switch
+				ipLocation = (provider?.Name ?? Utility.DefaultProvider).ToLower() switch
 				{
+					"ipwhois" => await Utility.GetByIpWhoisAsync(ipAddress, cancellationToken).ConfigureAwait(false),
 					"ipstack" => await Utility.GetByIpStackAsync(ipAddress, cancellationToken).ConfigureAwait(false),
+					"ipapi.co" => await Utility.GetByIpApiCoAsync(ipAddress, cancellationToken).ConfigureAwait(false),
+					"ip-api.com" => await Utility.GetByIpApiComAsync(ipAddress, cancellationToken).ConfigureAwait(false),
+					"findip" => await Utility.GetByFindIpAsync(ipAddress, cancellationToken).ConfigureAwait(false),
+					"geolocation" => await Utility.GetByGeoLocationAsync(ipAddress, cancellationToken).ConfigureAwait(false),
 					"keycdn" => await Utility.GetByKeyCdnAsync(ipAddress, cancellationToken).ConfigureAwait(false),
-					_ => await Utility.GetByIpApiAsync(ipAddress, cancellationToken).ConfigureAwait(false),
+					_ => await Utility.GetByIpWhoisAsync(ipAddress, cancellationToken).ConfigureAwait(false)
 				};
 				return ipLocation == null ? null : Utility.IPLocations[ipLocation.IP] = ipLocation;
 			}
@@ -185,13 +170,15 @@ namespace net.vieapps.Services.IPLocations
 			return ipLocation;
 		}
 
-		internal static async Task<IPLocation> GetLocationAsync(string ipAddress, string provider, bool force, Action<string, Exception> onError, CancellationToken cancellationToken)
+		internal static async Task<IPLocation> GetLocationAsync(string ipAddress, string providerName, bool force, Action<string, Exception> onError, CancellationToken cancellationToken)
 		{
 			var doUpdate = false;
 			var doBroadcast = false;
-			IPLocation ipLocation = null;
 
-			if (!force && !Utility.IPLocations.TryGetValue(ipAddress, out ipLocation))
+			if (force && Utility.IPLocations.TryRemove(ipAddress, out var ipLocation))
+				await IPLocation.DeleteAsync<IPLocation>(ipLocation.ID, null, cancellationToken).ConfigureAwait(false);
+
+			if (!Utility.IPLocations.TryGetValue(ipAddress, out ipLocation))
 			{
 				try
 				{
@@ -220,32 +207,43 @@ namespace net.vieapps.Services.IPLocations
 			if (ipLocation == null || string.IsNullOrWhiteSpace(ipLocation.City) || "N/A".IsEquals(ipLocation.City) || (DateTime.Now - ipLocation.LastUpdated).Days > 30)
 			{
 				if (Utility.Fetching.Add(ipAddress))
-					try
+				{
+					new CommunicateMessage(ServiceComponent.ServiceComponent.ServiceName)
 					{
-						ipLocation = await Utility.GetAsync(provider ?? Utility.FirstProvider?.Name, ipAddress, force, cancellationToken).ConfigureAwait(false);
-						if (string.IsNullOrWhiteSpace(ipLocation.City))
-							ipLocation = await Utility.GetAsync(provider ?? Utility.SecondProvider?.Name, ipAddress, force, cancellationToken).ConfigureAwait(false);
-						ipLocation.SaveAsync(doUpdate, onError).Execute();
-					}
-					catch (OperationCanceledException) { }
-					catch (Exception fe)
-					{
-						onError?.Invoke($"Error occurred while processing with \"{provider ?? Utility.FirstProvider?.Name}\" provider => {fe.Message}", fe);
+						Type = "Fetching",
+						ExcludedNodeID = ServiceComponent.ServiceComponent.NodeID,
+						Data = new JObject { ["IP"] = ipAddress }
+					}.Send(Router.GotBackupRouter());
+
+					Provider provider = null;
+					var doFetch = true;
+					while (doFetch)
 						try
 						{
-							ipLocation = await Utility.GetAsync(provider ?? Utility.SecondProvider?.Name, ipAddress, force, cancellationToken).ConfigureAwait(false);
-							ipLocation.SaveAsync(doUpdate, onError).Execute();
+							provider ??= Utility.Providers.FirstOrDefault(pvdr => pvdr.Name.IsEquals(providerName ?? Utility.DefaultProvider));
+							ipLocation = await Utility.GetAsync(provider, ipAddress, force, cancellationToken).ConfigureAwait(false);
+							if (ipLocation != null)
+							{
+								ipLocation.SaveAsync(doUpdate, onError).Execute();
+								doFetch = false;
+							}
 						}
-						catch (OperationCanceledException) { }
-						catch (Exception se)
+						catch (OperationCanceledException)
 						{
-							onError?.Invoke($"Error occurred while processing with \"{provider ?? Utility.SecondProvider?.Name}\" provider: {se.Message}", se);
+							doFetch = false;
 						}
-					}
-					finally
-					{
-						Utility.Fetching.TryRemove(ipAddress);
-					}
+						catch (Exception ex)
+						{
+							onError?.Invoke($"Error occurred while processing with \"{provider?.Name}\" provider on IP \"{ipAddress}\" => {ex.Message}", ex);
+							var index = Utility.Providers.FindIndex(pvdr => pvdr.Name.Equals(provider.Name));
+							if (index < Utility.Providers.Count - 1)
+								provider = Utility.Providers[index + 1];
+							else
+								doFetch = false;
+						}
+
+					Utility.Fetching.TryRemove(ipAddress);
+				}
 				else
 					Utility.IPLocations.TryGetValue(ipAddress, out ipLocation);
 
@@ -258,6 +256,13 @@ namespace net.vieapps.Services.IPLocations
 
 			if (doBroadcast)
 				ipLocation.Send();
+
+			new CommunicateMessage(ServiceComponent.ServiceComponent.ServiceName)
+			{
+				Type = "Fetched",
+				ExcludedNodeID = ServiceComponent.ServiceComponent.NodeID,
+				Data = new JObject { ["IP"] = ipAddress }
+			}.Send(Router.GotBackupRouter());
 
 			return ipLocation ?? new IPLocation
 			{

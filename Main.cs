@@ -69,26 +69,20 @@ namespace net.vieapps.Services.IPLocations
 			if (ConfigurationManager.GetSection("net.vieapps.services.iplocations.providers") is AppConfigurationSectionHandler svcConfig)
 			{
 				Utility.Providers = svcConfig.Section.SelectNodes("provider") is XmlNodeList svcProviders
-					? svcProviders.ToList()
+					? [.. svcProviders.ToList()
 						.Select(svcProvider => new Provider(svcProvider.Attributes["name"]?.Value, svcProvider.Attributes["uriPattern"]?.Value, svcProvider.Attributes["accessKey"]?.Value ?? ""))
-						.Where(provider => !string.IsNullOrWhiteSpace(provider.Name) && !string.IsNullOrWhiteSpace(provider.UriPattern))
-						.ToDictionary(provider => provider.Name, provider => provider, StringComparer.OrdinalIgnoreCase)
+						.Where(provider => !string.IsNullOrWhiteSpace(provider.Name) && !string.IsNullOrWhiteSpace(provider.UriPattern))]
 					: [];
 
-				var name = svcConfig.Section.Attributes["first"]?.Value ?? "ipstack";
-				Utility.FirstProvider = Utility.Providers.TryGetValue(name, out Provider provider) ? provider : Utility.Providers.FirstOrDefault().Value;
-
-				name = svcConfig.Section.Attributes["second"]?.Value ?? "ipapi";
-				Utility.SecondProvider = Utility.Providers.TryGetValue(name, out provider) ? provider : Utility.Providers.FirstOrDefault().Value;
-
+				Utility.DefaultProvider = svcConfig.Section.Attributes["defaultProvider"]?.Value ?? "ipwhois";
+				Utility.DefaultLocation = svcConfig.Section.Attributes["defaultLocation"]?.Value ?? "Hanoi, Vietnam";
 				Utility.SameLocationRegex = new Regex(svcConfig.Section.Attributes["sameLocationRegex"]?.Value ?? @"\d{1,3}\.\d{1,3}");
 				Utility.SameLocationAddress = (svcConfig.Section.Attributes["sameLocationAddress"]?.Value ?? "127.0.0.1").ToList(";", true);
 				Utility.ExternalURI = svcConfig.Section.Attributes["externalURI"]?.Value ?? Utility.APIsURI;
-				Utility.DefaultLocation = svcConfig.Section.Attributes["default"]?.Value ?? "Hanoi, Vietnam";
 			}
 
 			// prepare at first run
-			if (!string.IsNullOrWhiteSpace(Utility.ExternalURI) && !Utility.ExternalURI.IsEquals(Utility.APIsURI))
+			if (!string.IsNullOrWhiteSpace(Utility.ExternalURI) && !Utility.ExternalURI.IsEquals("(null)") && !Utility.ExternalURI.IsEquals(Utility.APIsURI))
 				try
 				{
 					await new Uri($"{Utility.ExternalURI}/discovery/services").FetchHttpAsync(this.CancellationToken).ConfigureAwait(false);
@@ -101,12 +95,14 @@ namespace net.vieapps.Services.IPLocations
 				}
 			else
 				Utility.ExternalURI = null;
+
+			Utility.DefaultProvider ??= Utility.Providers.First().Name;
 			await Utility.PrepareAddressesAsync(this.CancellationToken, this.Logger).ConfigureAwait(false);
 
 			// info
-			this.Logger.LogInformation($"Providers: {string.Join(", ", Utility.Providers.Keys)}");
-			this.Logger.LogInformation($"First provider: {Utility.FirstProvider?.Name ?? "N/A"}");
-			this.Logger.LogInformation($"Second provider: {Utility.SecondProvider?.Name ?? "N/A"}");
+			this.Logger.LogInformation($"Providers: {string.Join(", ", Utility.Providers.Select(provider => provider.Name))}");
+			this.Logger.LogInformation($"Default provider: {Utility.DefaultProvider}");
+			this.Logger.LogInformation($"Default location: {Utility.DefaultLocation}");
 			this.Logger.LogInformation($"Same Location (Regex): {Utility.SameLocationRegex}");
 			this.Logger.LogInformation($"Same Location (Address): {Utility.SameLocationAddress.Join(" - ")}");
 			this.Logger.LogInformation($"Public Address: {string.Join(" - ", Utility.PublicAddresses)}");
@@ -124,7 +120,7 @@ namespace net.vieapps.Services.IPLocations
 			{
 				await Task.Delay(UtilityService.GetRandomNumber(123, 456), this.CancellationToken).ConfigureAwait(false);
 				Utility.CurrentLocation = await Utility.GetCurrentLocationAsync(this.Logger.LogError, this.CancellationToken).ConfigureAwait(false);
-				this.Logger.LogInformation($"Current Location: {(Utility.CurrentLocation != null ? $"{Utility.CurrentLocation.City}, {Utility.CurrentLocation?.Region}, {Utility.CurrentLocation.Country}" : Utility.DefaultLocation)}");
+				this.Logger.LogInformation($"Current Location: {(Utility.CurrentLocation != null ? $"{Utility.CurrentLocation.City}, {Utility.CurrentLocation.Region}, {Utility.CurrentLocation.Country}" : Utility.DefaultLocation)}");
 			}
 			catch (Exception ex)
 			{
@@ -164,6 +160,10 @@ namespace net.vieapps.Services.IPLocations
 				Utility.IPLocations.Remove(message.Data.Get<string>("IP"));
 			else if (message.Type.IsEquals("Sync"))
 				Utility.IPLocations.Select(kvp => kvp.Value).ToList().ForEach(ipLocation => ipLocation.Send());
+			else if (message.Type.IsEquals("Fetching"))
+				Utility.Fetching.Add(message.Data.Get<string>("IP"));
+			else if (message.Type.IsEquals("Fetched"))
+				Utility.Fetching.TryRemove(message.Data.Get<string>("IP"));
 			return Task.CompletedTask;
 		}
 
@@ -199,7 +199,7 @@ namespace net.vieapps.Services.IPLocations
 						if (Utility.PublicAddresses.Count < 1)
 							await Utility.PrepareAddressesAsync(this.CancellationToken, this.Logger, false).ConfigureAwait(false);
 						json = requestInfo.ObjectName.IsStartsWith("current")
-							? (Utility.CurrentLocation ?? (Utility.CurrentLocation = await Utility.GetCurrentLocationAsync(this.Logger.LogError, cts.Token).ConfigureAwait(false)) ?? new()).ToJson(ip => ip.Remove("LastUpdated"))
+							? (Utility.CurrentLocation ?? (Utility.CurrentLocation = await Utility.GetCurrentLocationAsync(this.Logger.LogError, cts.Token).ConfigureAwait(false)) ?? new()).ToJson(response => response.Remove("LastUpdated"))
 							: Utility.PublicAddresses.Select(address => new JValue($"{address}")).ToJArray();
 						break;
 
@@ -216,7 +216,7 @@ namespace net.vieapps.Services.IPLocations
 										ipLocation.IP = ipAddress;
 									})
 									: await Utility.GetLocationAsync(ipAddress, requestInfo.GetQueryParameter("x-provider"), requestInfo.ContainsKey("x-provider") || requestInfo.ContainsKey("x-use-internal"), (msg, ex) => this.WriteLogsAsync(requestInfo, msg, ex).Execute(), cts.Token).ConfigureAwait(false) ?? new()
-							).ToJson(ip => ip.Remove("LastUpdated"));
+							).ToJson(response => response.Remove("LastUpdated"));
 						break;
 				}
 
