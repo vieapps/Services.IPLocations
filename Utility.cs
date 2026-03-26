@@ -176,13 +176,13 @@ namespace net.vieapps.Services.IPLocations
 			var doBroadcast = false;
 
 			if (force && Utility.IPLocations.TryRemove(ipAddress, out var ipLocation))
-				await IPLocation.DeleteAsync<IPLocation>(ipLocation.ID, null, cancellationToken).ConfigureAwait(false);
+				await IPLocation.DeleteAsync(ipLocation.ID, null, cancellationToken).ConfigureAwait(false);
 
 			if (!Utility.IPLocations.TryGetValue(ipAddress, out ipLocation))
 			{
 				try
 				{
-					ipLocation = await IPLocation.GetAsync<IPLocation>(ipAddress.GenerateUUID(), cancellationToken).ConfigureAwait(false);
+					ipLocation = await IPLocation.GetAsync(ipAddress.GenerateUUID(), cancellationToken).ConfigureAwait(false);
 					doUpdate = ipLocation != null;
 				}
 				catch (Exception ex)

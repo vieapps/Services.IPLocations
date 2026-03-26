@@ -135,7 +135,7 @@ namespace net.vieapps.Services.IPLocations
 				await ipLocations.ForEachAsync(async ipLocation =>
 				{
 					Utility.IPLocations.Remove(ipLocation.IP);
-					await IPLocation.DeleteAsync<IPLocation>(ipLocation.ID, userID, this.CancellationToken).ConfigureAwait(false);
+					await IPLocation.DeleteAsync(ipLocation.ID, userID, this.CancellationToken).ConfigureAwait(false);
 					new CommunicateMessage(this.ServiceName)
 					{
 						Type = "Remove",
