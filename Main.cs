@@ -63,7 +63,7 @@ namespace net.vieapps.Services.IPLocations
 			this.Syncable = false;
 			Utility.CancellationToken = this.CancellationToken;
 			Utility.APIsURI = this.GetHttpURI("APIs", "https://apis.vieapps.net");
-			await this.StartAsync(args, (_, _) => this.RegisterCacheCommunicator(), initializeRepository).ConfigureAwait(false);
+			await this.StartAsync(args, (_, _) => this.RegisterCacheCommunicator(), initializeRepository, Utility.Cache).ConfigureAwait(false);
 
 			// configuration
 			if (ConfigurationManager.GetSection("net.vieapps.services.iplocations.providers") is AppConfigurationSectionHandler svcConfig)
