@@ -170,6 +170,7 @@ namespace net.vieapps.Services.IPLocations
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			var stopwatch = Stopwatch.StartNew();
+			this.Statistics.RpcEntered();
 			await this.WriteLogsAsync(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()}{(string.IsNullOrWhiteSpace(requestInfo.GetObjectIdentity()) ? $"/{requestInfo.GetQueryParameter("ip") ?? requestInfo.GetQueryParameter("ip-address") ?? requestInfo.Session.IP}" : "")})").ConfigureAwait(false);
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
 
@@ -230,6 +231,10 @@ namespace net.vieapps.Services.IPLocations
 			catch (Exception ex)
 			{
 				throw this.GetRuntimeException(requestInfo, ex, stopwatch);
+			}
+			finally
+			{
+				this.Statistics.RpcCompleted(stopwatch);
 			}
 		}
 	}
