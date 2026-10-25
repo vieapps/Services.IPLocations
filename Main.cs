@@ -68,17 +68,17 @@ namespace net.vieapps.Services.IPLocations
 			// configuration
 			if (ConfigurationManager.GetSection("net.vieapps.services.iplocations.providers") is AppConfigurationSectionHandler svcConfig)
 			{
-				Utility.Providers = svcConfig.Section.SelectNodes("provider") is XmlNodeList svcProviders
-					? [.. svcProviders.ToList()
+				if (svcConfig.Section.SelectNodes("provider") is XmlNodeList svcProviders)
+					svcProviders.ToList()
 						.Select(svcProvider => new Provider(svcProvider.Attributes["name"]?.Value, svcProvider.Attributes["uriPattern"]?.Value, svcProvider.Attributes["accessKey"]?.Value ?? ""))
-						.Where(provider => !string.IsNullOrWhiteSpace(provider.Name) && !string.IsNullOrWhiteSpace(provider.UriPattern))]
-					: [];
-
-				Utility.DefaultProvider = svcConfig.Section.Attributes["defaultProvider"]?.Value ?? "ipwhois";
+						.Where(provider => !string.IsNullOrWhiteSpace(provider.Name) && !string.IsNullOrWhiteSpace(provider.UriPattern))
+						.ForEach(provider => Utility.Providers.Add((provider, null)));
+				Utility.DefaultProvider = svcConfig.Section.Attributes["defaultProvider"]?.Value ?? (Utility.Providers.Count > 0 ? Utility.Providers.First().Provider.Name : "ipwhois");
 				Utility.DefaultLocation = svcConfig.Section.Attributes["defaultLocation"]?.Value ?? "Hanoi, Vietnam";
 				Utility.SameLocationRegex = new Regex(svcConfig.Section.Attributes["sameLocationRegex"]?.Value ?? @"\d{1,3}\.\d{1,3}");
 				Utility.SameLocationAddress = (svcConfig.Section.Attributes["sameLocationAddress"]?.Value ?? "127.0.0.1").ToList(";", true);
 				Utility.ExternalURI = svcConfig.Section.Attributes["externalURI"]?.Value ?? Utility.APIsURI;
+				Utility.TryWithOtherProvider = "true".IsEquals(svcConfig.Section.Attributes["tryWithOtherProvider"]?.Value);
 			}
 
 			// prepare at first run
@@ -96,11 +96,11 @@ namespace net.vieapps.Services.IPLocations
 			else
 				Utility.ExternalURI = null;
 
-			Utility.DefaultProvider ??= Utility.Providers.First().Name;
+			Utility.DefaultProvider ??= Utility.Providers.First().Provider.Name;
 			await Utility.PrepareAddressesAsync(this.CancellationToken, this.Logger).ConfigureAwait(false);
 
 			// info
-			this.Logger.LogInformation($"Providers: {string.Join(", ", Utility.Providers.Select(provider => provider.Name))}");
+			this.Logger.LogInformation($"Providers: {string.Join(", ", Utility.Providers.Select(info => info.Provider.Name))}");
 			this.Logger.LogInformation($"Default provider: {Utility.DefaultProvider}");
 			this.Logger.LogInformation($"Default location: {Utility.DefaultLocation}");
 			this.Logger.LogInformation($"Same Location (Regex): {Utility.SameLocationRegex}");
@@ -182,6 +182,10 @@ namespace net.vieapps.Services.IPLocations
 				if (!string.IsNullOrWhiteSpace(requestInfo.ObjectName) && string.IsNullOrWhiteSpace(requestInfo.GetParameter("x-app-token")) && string.IsNullOrWhiteSpace(requestInfo.Session?.User?.ID) && (!requestInfo.TryGetParameter("x-requester", out var requester) || !requester.IsStartsWith("vieapps-ngx")))
 					throw new TokenNotFoundException();
 
+				var isDebugLogEnabled = this.IsDebugLogEnabled || requestInfo.ContainsKey("x-logs");
+				var providerName = requestInfo.GetQueryParameter("x-provider");
+				var isUseInternal = requestInfo.ContainsKey("x-use-internal");
+
 				JToken json = null;
 				switch (requestInfo.ObjectName.ToLower())
 				{
@@ -208,7 +212,7 @@ namespace net.vieapps.Services.IPLocations
 						var ipAddress = requestInfo.GetQueryParameter("ip") ?? requestInfo.GetQueryParameter("ip-address") ?? requestInfo.Session.IP;
 						json = string.IsNullOrWhiteSpace(ipAddress)
 							? throw new InvalidRequestException($"The request is invalid ({requestInfo.Verb} {requestInfo.GetURI()})")
-							: (requestInfo.ContainsKey("x-use-external") && !string.IsNullOrWhiteSpace(Utility.ExternalURI)
+							: (isUseInternal && !string.IsNullOrWhiteSpace(Utility.ExternalURI)
 								? await Utility.GetAsync(cts.Token, ipAddress).ConfigureAwait(false) ?? new()
 								: ipAddress.IsSameLocation() && Utility.CurrentLocation != null
 									? new IPLocation().CopyFrom(Utility.CurrentLocation, null, ipLocation =>
@@ -216,8 +220,10 @@ namespace net.vieapps.Services.IPLocations
 										ipLocation.ID = ipAddress.GenerateUUID();
 										ipLocation.IP = ipAddress;
 									})
-									: await Utility.GetLocationAsync(ipAddress, requestInfo.GetQueryParameter("x-provider"), requestInfo.ContainsKey("x-provider") || requestInfo.ContainsKey("x-use-internal"), (msg, ex) => this.WriteLogsAsync(requestInfo, msg, ex).Execute(), cts.Token).ConfigureAwait(false) ?? new()
+									: await Utility.GetLocationAsync(ipAddress, providerName, !string.IsNullOrWhiteSpace(providerName) || isUseInternal, isDebugLogEnabled ? msg => this.WriteLogsAsync(requestInfo, msg).Execute() : null, (msg, ex) => this.WriteLogsAsync(requestInfo, msg, ex).Execute(), cts.Token).ConfigureAwait(false) ?? new()
 							).ToJson(response => response.Remove("LastUpdated"));
+						if (isDebugLogEnabled && requestInfo.ContainsKey("x-status"))
+							await this.WriteLogsAsync(requestInfo, $"Providers [{Utility.Providers.Count}]:\r\n- {string.Join("\r\n- ", Utility.Providers.Select(info => info.Provider.Name + (info.Last429 == null ? "" : $" @ {info.Last429.Value.ToIsoString()}")))}\r\nCached IPs: {Utility.IPLocations.Count:###,###,##0}").ConfigureAwait(false);
 						break;
 				}
 
